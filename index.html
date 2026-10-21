@@ -251,7 +251,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
     <div class="nav-grid" id="board-nav">
       <button class="tile primary" data-act="nav" data-view="view-queue" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg>Today</button>
       <button class="tile" data-act="nav" data-view="view-harvest-ready" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>Harvest ready</button>
-      <button class="tile" data-act="nav" data-view="view-harvest-complete" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2 4 2 4H5"/></svg>Harvest complete</button>
+      <button class="tile" data-act="nav" data-view="view-harvest-complete" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2 4 2 4H5"/></svg>Harvested</button>
       <button class="tile" data-act="nav" data-view="view-activity-log" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Activity log</button>
       <button class="tile" data-act="nav" data-view="view-history" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></svg>Reassignments</button>
       <button class="tile" data-act="nav" data-view="view-scouting" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Scouting</button>
@@ -317,7 +317,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
 
   <!-- 8. harvest complete -->
   <section id="view-harvest-complete" class="view" hidden aria-labelledby="h-hc">
-    <div class="viewbar"><button class="btn btn-back" data-act="back" type="button">Board</button><h2 id="h-hc" tabindex="-1">Harvest complete</h2></div>
+    <div class="viewbar"><button class="btn btn-back" data-act="back" type="button">Board</button><h2 id="h-hc" tabindex="-1">Harvested cohorts</h2></div>
     <div id="hc-list"></div>
   </section>
 
@@ -359,7 +359,8 @@ const ACTIONS = {
   reassignSession: 'reassign-session',
   closeAndNew: 'close-and-new-session',
   verifyHarvestReady: 'verify-harvest-ready',
-  verifyHarvestComplete: 'verify-harvest-complete'
+  verifyHarvestComplete: 'verify-harvest-complete', // RETIRED server-side (returns USE_TERMINATE_COHORT); no longer called
+  terminateCohort: 'terminate-cohort'
 };
 /* BACKEND CONTRACT (what this app sends and reads; field names are matched loosely, so findingId, Finding_ID and
    finding_id all work). Every request is POST text/plain JSON: {action, ...payload, managerId}. Every reply is
@@ -940,19 +941,20 @@ async function loadHarvestableCohorts() {
     const res = await apiCall(ACTIONS.harvestableCohorts);
     state.harvestableCohorts = listOf(res, 'cohorts', 'items', 'harvestable').map(h => ({
       cohortId: String(g(h, 'cohortId', 'cohort') || ''), crop: g(h, 'cropName', 'crop') || '', beds: g(h, 'beds', 'bedIds', 'bedId', 'bed') || '',
-      lastHarvest: g(h, 'lastHarvestTime', 'lastHarvest', 'actualHarvestStart'), weight: g(h, 'totalWeight', 'weight'), state: g(h, 'fieldState', 'state', 'status') || ''
+      lastHarvest: g(h, 'lastHarvestTime', 'lastHarvest', 'actualHarvestStart'), weight: g(h, 'totalWeight', 'weight'), state: g(h, 'fieldState', 'state', 'status') || '',
+      picks: g(h, 'pickCount'), nextPick: g(h, 'nextPickEarliest'), finalLogged: g(h, 'finalPickLogged') === true
     }));
     renderHarvestComplete();
   } catch (err) { box.innerHTML = errBox(err.message, 'view-harvest-complete'); }
 }
 function renderHarvestComplete() {
   const box = $('#hc-list');
-  if (!state.harvestableCohorts.length) { box.innerHTML = empty('No cohorts ready to close out', 'Cohorts appear here after harvest has been logged and is ready for you to close out.'); return; }
+  if (!state.harvestableCohorts.length) { box.innerHTML = empty('No harvested cohorts yet', 'Cohorts appear here once a worker has logged a pick. Terminate a cohort here when its production is over.'); return; }
   box.innerHTML = '<div class="list">' + state.harvestableCohorts.map((c, i) => `
     <div class="item">
       <div class="item-top"><span class="item-title">${esc(c.cohortId)}</span><span class="item-time">${c.lastHarvest ? 'Last harvest ' + esc(fmtDateTime(c.lastHarvest)) : ''}</span></div>
-      <p class="sub">${[c.crop, c.beds && 'Beds ' + (Array.isArray(c.beds) ? c.beds.join(', ') : c.beds), c.weight != null && c.weight !== '' ? 'Harvested ' + c.weight : '', c.state].filter(Boolean).map(esc).join(', ')}</p>
-      <div class="verify-row"><button class="btn btn-primary btn-block" data-act="verify-complete" data-i="${i}" type="button">Verify harvest complete</button></div>
+      <p class="sub">${[c.crop, c.beds && 'Beds ' + (Array.isArray(c.beds) ? c.beds.join(', ') : c.beds), c.weight != null && c.weight !== '' ? 'Harvested ' + c.weight : '', c.picks ? c.picks + (Number(c.picks) === 1 ? ' pick' : ' picks') : '', c.nextPick ? 'Next pick from ' + fmtDate(c.nextPick) : '', c.finalLogged ? 'Final pick logged' : '', c.state].filter(Boolean).map(esc).join(', ')}</p>
+      <div class="verify-row"><button class="btn btn-primary btn-block" data-act="verify-complete" data-i="${i}" type="button">Terminate cohort (end production)</button></div>
     </div>`).join('') + '</div>';
 }
 
@@ -1015,11 +1017,12 @@ function confirmVerifyReady(i) {
 function confirmVerifyComplete(i) {
   const c = state.harvestableCohorts[i]; if (!c) return;
   openSheet({
-    title: 'Verify harvest complete',
-    body: sumRows([['Cohort', c.cohortId], ['Crop', c.crop], ['Beds', Array.isArray(c.beds) ? c.beds.join(', ') : c.beds]]) +
-      '<p class="hint">This closes out the cohort harvest. Confirm all beds are finished.</p>',
-    actions: [{ label: 'Verify harvest complete', primary: true, done: 'Harvest complete verified.',
-      run: async () => { await apiCall(ACTIONS.verifyHarvestComplete, { cohortId: c.cohortId }); await loadHarvestableCohorts(); } }]
+    title: 'Terminate cohort',
+    body: sumRows([['Cohort', c.cohortId], ['Crop', c.crop], ['Beds', Array.isArray(c.beds) ? c.beds.join(', ') : c.beds], ['Harvested', c.weight || '']]) +
+      '<label class="field"><span>Reason (optional)</span><input class="input" id="tc-reason" maxlength="200" autocomplete="off" placeholder="e.g. final pick done"></label>' +
+      '<p class="hint">This ends production for the cohort and starts bed turnover (perennials are put on hold instead). Only do this when no more picks are planned. It cannot be undone from this app.</p>',
+    actions: [{ label: 'Terminate cohort', primary: true, done: 'Cohort terminated.',
+      run: async () => { const reason = ($('#tc-reason').value || '').trim() || 'Production ended after harvest'; await apiCall(ACTIONS.terminateCohort, { cohortId: c.cohortId, reason }); await loadHarvestableCohorts(); } }]
   });
 }
 
