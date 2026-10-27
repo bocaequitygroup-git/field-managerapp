@@ -873,7 +873,7 @@ function vfInfo(bed) {
 }
 const vfInTurnover = b => b.status === 'POST-HARVEST ACTIVITIES' || b.status === 'UNVERIFIED' || !!b.pv;
 
-/* Hours as h:mm (0.78 h -> 0:47). Budget/actual come from the server (ActivityVerification.gs). */
+/* Hours as h:mm (0.78 h -> 0:47). Budget/actual come from the server (BedStatusEngine.gs). */
 function fmtHM(h) { const m = Math.max(0, Math.round(Number(h || 0) * 60)); return Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0'); }
 function fmtWhen(iso) { const d = toDate(iso); return d ? fmtDate(d) + ' · ' + fmtTime(d) : ''; }
 /* Who completed a step, when, and time taken vs budget (+ who verified it, once verified). */
