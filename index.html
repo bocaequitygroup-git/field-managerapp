@@ -178,6 +178,18 @@ h2[tabindex]:focus { outline: none; }
 .item.hit { background: #FFF6CF; outline: 3px solid #E5B800; outline-offset: -3px; }
 .verify-row { margin-top: 10px; }
 
+/* ---------- verify ---------- */
+.vrow { display: flex; gap: 12px; align-items: flex-start; }
+.vrow input[type=checkbox] { width: 28px; height: 28px; flex: none; margin: 2px 0 0; accent-color: var(--leaf); }
+.vbody { flex: 1; min-width: 0; }
+.vbar { display: flex; gap: 10px; flex-wrap: wrap; }
+.vbar .btn { flex: 1; min-width: 130px; }
+details.group > summary { list-style: none; }
+details.group > summary::-webkit-details-marker { display: none; }
+details.group[open] > summary { border-bottom: 1px solid var(--line); }
+details.group:not([open]) > summary { border-bottom: 0; }
+button.item { font: inherit; color: inherit; }
+
 /* ---------- sheet (dialog) ---------- */
 dialog.sheet {
   border: 0; padding: 0; width: 100%; max-width: 560px; margin: auto auto 0; border-radius: 18px 18px 0 0;
@@ -253,6 +265,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
       <button class="tile" data-act="nav" data-view="view-harvest-ready" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>Harvest ready</button>
       <button class="tile" data-act="nav" data-view="view-harvest-complete" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2 4 2 4H5"/></svg>Harvested</button>
       <button class="tile" data-act="nav" data-view="view-activity-log" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Activity log</button>
+      <button class="tile" data-act="nav" data-view="view-verify" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg>Verify</button>
       <button class="tile" data-act="nav" data-view="view-history" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></svg>Reassignments</button>
       <button class="tile" data-act="nav" data-view="view-scouting" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Scouting</button>
     </div>
@@ -321,6 +334,27 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
     <div id="hc-list"></div>
   </section>
 
+  <!-- 9. verify: bed list -->
+  <section id="view-verify" class="view" hidden aria-labelledby="h-verify">
+    <div class="viewbar"><button class="btn btn-back" data-act="back" type="button">Board</button><h2 id="h-verify" tabindex="-1">Verify</h2></div>
+    <p class="meta" style="margin:-6px 0 14px">Beds in turnover that a manager has to clear and verify. Worker logging alone never releases a bed.</p>
+    <div class="seg" id="verify-seg" role="group" aria-label="Filter">
+      <button type="button" data-act="vf-filter" data-f="all" aria-pressed="true">Unverified</button>
+      <button type="button" data-act="vf-filter" data-f="ready" aria-pressed="false">Ready to verify</button>
+      <button type="button" data-act="vf-filter" data-f="reassigned" aria-pressed="false">Reassigned</button>
+    </div>
+    <div class="filters" style="grid-template-columns:minmax(0,1fr)">
+      <label class="field"><span>Block</span><select class="input" id="verify-block"><option value="">All blocks</option></select></label>
+    </div>
+    <div id="verify-list"></div>
+  </section>
+
+  <!-- 10. verify: one bed -->
+  <section id="view-verify-bed" class="view" hidden aria-labelledby="h-vbed">
+    <div class="viewbar"><button class="btn btn-back" data-act="vf-back" type="button">Verify</button><h2 id="h-vbed" tabindex="-1">Activities</h2></div>
+    <div id="vbed-body"></div>
+  </section>
+
 </main>
 
 <dialog class="sheet" id="sheet" aria-labelledby="sheet-title"><div class="sheet-in" id="sheet-body"></div></dialog>
@@ -360,7 +394,10 @@ const ACTIONS = {
   closeAndNew: 'close-and-new-session',
   verifyHarvestReady: 'verify-harvest-ready',
   verifyHarvestComplete: 'verify-harvest-complete', // RETIRED server-side (returns USE_TERMINATE_COHORT); no longer called
-  terminateCohort: 'terminate-cohort'
+  terminateCohort: 'terminate-cohort',
+  // verify screen: all of these routes already exist in Code_main.gs
+  todayView: 'get-manager-today-view', startSessions: 'start-sessions', overridePostHarvest: 'override-post-harvest',
+  completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting'
 };
 /* BACKEND CONTRACT (what this app sends and reads; field names are matched loosely, so findingId, Finding_ID and
    finding_id all work). Every request is POST text/plain JSON: {action, ...payload, managerId}. Every reply is
@@ -399,10 +436,10 @@ const state = {
   managerId: null, managerName: null, role: null, token: null,
   sessions: [], workers: [], history: [],
   harvestCandidates: [], harvestableCohorts: [],
-  activityLog: [], scoutFindings: [],
+  activityLog: [], scoutFindings: [], vf: null,
   queue: { generatedAt: null, counts: {}, mustDo: [], attention: [], routine: [] }
 };
-const ui = { view: 'view-login', activityType: 'all', loaded: {} };
+const ui = { view: 'view-login', activityType: 'all', loaded: {}, vfFilter: 'all', vfBlock: '', vfBed: null, vfSkip: false, vfSteps: new Set(), vfWorkers: new Set() };
 
 /* ==========================================================================
    SMALL HELPERS
@@ -479,7 +516,7 @@ function apiError(message, code) { const e = new Error(message); e.code = code; 
 
 /* POST {action, ...payload} as text/plain (a "simple" request, so an Apps Script web app answers without a CORS preflight).
    Expected reply: {ok:true, data:...} or a bare payload. Failures: {ok:false, error:"..."} or {success:false, ...}. */
-async function apiCall(action, payload = {}) {
+async function apiCall(action, payload = {}, timeoutMs) {
   const body = Object.assign({}, payload);
   if (state.token && body.token === undefined) body.token = state.token;
   if (state.managerId && body.managerId === undefined) body.managerId = state.managerId;   // informational; the backend uses the session
@@ -488,7 +525,7 @@ async function apiCall(action, payload = {}) {
     if (IS_DEMO) {
       json = await mockBackend(action, body);
     } else {
-      const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+      const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), timeoutMs || REQUEST_TIMEOUT_MS);
       let resp;
       try {
         resp = await fetch(WEB_APP_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -520,7 +557,8 @@ function clearState() {
   Object.assign(state, { managerId: null, managerName: null, role: null, token: null, sessions: [], workers: [], history: [],
     harvestCandidates: [], harvestableCohorts: [], activityLog: [], scoutFindings: [],
     queue: { generatedAt: null, counts: {}, mustDo: [], attention: [], routine: [] } });
-  ui.loaded = {}; ui.activityType = 'all';
+  ui.loaded = {}; ui.activityType = 'all'; state.vf = null;
+  Object.assign(ui, { vfFilter: 'all', vfBlock: '', vfBed: null, vfSkip: false, vfSteps: new Set(), vfWorkers: new Set() });
   renderHeader();
 }
 
@@ -586,7 +624,9 @@ const LOADERS = {
   'view-harvest-complete': () => loadHarvestableCohorts(),
   'view-activity-log': () => loadActivityLog(),
   'view-history': () => loadHistory(),
-  'view-scouting': () => loadScoutFindings()
+  'view-scouting': () => loadScoutFindings(),
+  'view-verify': () => { if (ui.vfSkip && state.vf) { ui.vfSkip = false; renderVerify(); } else { ui.vfSkip = false; loadVerify(); } },
+  'view-verify-bed': () => { if (ui.vfSkip) { ui.vfSkip = false; return; } loadVerify({ silent: true }); }
 };
 function switchView(viewId) {
   $$('.view').forEach(v => { v.hidden = v.id !== viewId; });
@@ -779,6 +819,203 @@ function renderActivityLog() {
       <p class="sub">${['Bed ' + (g(a, 'bedId', 'bed') || '-'), g(a, 'cohortId', 'cohort'), range].filter(Boolean).map(esc).join(', ')}</p>
       ${g(a, 'notes', 'note') ? `<p>${esc(g(a, 'notes', 'note'))}</p>` : ''}</div>`;
   }).join('') + '</div>';
+}
+
+/* ----- 9. verify: bed turnover checklist, assign / override / verify bed ready, verify planting -----
+   No new backend: reads get-manager-today-view (beds[].postHarvest = getPostHarvestView_ from BedStatusEngine.gs) and acts through the
+   existing routes start-sessions, override-post-harvest, verify-bed-ready, complete-cohort and verify-planting. */
+const VF_TIMEOUT_MS = 60000;   // get-manager-today-view reads many sheets (ranch_aab allows 60 s too)
+async function loadVerify(opts = {}) {
+  const box = $('#verify-list');
+  if (!opts.silent) box.innerHTML = skeleton(3) + '<p class="meta">Loading the beds can take a few seconds.</p>';
+  try {
+    const [day, board] = await Promise.all([apiCall(ACTIONS.todayView, {}, VF_TIMEOUT_MS), apiCall(ACTIONS.board).catch(() => null)]);
+    const catalog = listOf(day, 'activityCatalog').map(a => ({
+      id: g(a, 'id') || '', name: g(a, 'name') || '', domain: g(a, 'domain') || '', desc: g(a, 'description') || '', seq: Number(g(a, 'postHarvestSequence')) || 0 }));
+    const descOf = {}; catalog.forEach(a => { descOf[a.name] = a.desc; });
+    const open = new Set(['ASSIGNED', 'ACTIVE', 'PAUSED', 'EXCEPTION']);
+    const sessions = listOf(day, 'sessions').filter(s => open.has(String(g(s, 'status') || '').toUpperCase())).map(s => ({
+      id: g(s, 'id') || '', bedId: String(g(s, 'bedId') || ''), activity: g(s, 'activity') || '', worker: g(s, 'workerName') || g(s, 'workerId') || '',
+      status: String(g(s, 'status') || '').toUpperCase() }));
+    const reassigned = {};   // bedId -> names the board says were handed over
+    if (board) listOf(board, 'sessions', 'openSessions', 'board').map(normSession).forEach(s => { if (s.reassignedFrom) (reassigned[s.bedId] = reassigned[s.bedId] || []).push(workerName(s.reassignedFrom)); });
+    const beds = listOf(day, 'beds').map(b => {
+      const pv = b.postHarvest && Array.isArray(b.postHarvest.steps) ? b.postHarvest : null;
+      return { id: String(g(b, 'id', 'bedId') || ''), block: g(b, 'blockId') || '', status: String(g(b, 'bedStatus') || '').toUpperCase(),
+        cohortId: g(b, 'cohortId') || '', crop: g(b, 'cropName') || '', cohortStatus: String(g(b, 'cohortStatus') || '').toUpperCase(), pv };
+    }).filter(b => b.id);
+    let workers = listOf(day, 'workers').map(w => ({ id: String(g(w, 'workerId') || ''), name: g(w, 'name') || g(w, 'workerId') || '' })).filter(w => w.id);
+    if (!workers.length) { try { workers = (await ensureWorkers()).filter(w => !/manager|founder/i.test(w.role)).map(w => ({ id: w.id, name: w.name })); } catch (e) { /* assign stays disabled */ } }
+    state.vf = { beds, workers, catalog, descOf, sessions, reassigned };
+    renderVerify(); if (ui.vfBed) renderVerifyBed();
+  } catch (err) { if (!opts.silent) box.innerHTML = errBox(err.message, 'view-verify'); else toast(err.message); }
+}
+const vfNatural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+function vfSteps(bed) {
+  if (bed.pv) return bed.pv.steps.map(s => ({ name: s.name, domain: s.domain || 'Post-harvest', gate: s.gate || '', status: s.status, overridden: !!s.overridden }));
+  return state.vf.catalog.filter(a => a.seq > 0).sort((a, b) => a.seq - b.seq).map(a => ({ name: a.name, domain: a.domain || 'Post-harvest', gate: '', status: 'PENDING', overridden: false }));
+}
+const vfKey = bed => (bed.pv && !bed.pv.bedLevel && bed.cohortId) ? bed.cohortId : 'BED:' + bed.id;
+const vfCohortTurnover = bed => !!(bed.pv && !bed.pv.bedLevel);
+/* Only the server decides in the end (validateActivity_); this just keeps ticks off steps it will refuse. */
+function vfAssignable(bed, s) {
+  if (s.status === 'COMPLETE' || s.gate === 'BUFFER') return false;
+  if (s.gate === 'WINDOW' && s.status !== 'OPEN') return false;
+  return vfCohortTurnover(bed) ? s.status === 'OPEN' : true;
+}
+function vfOpenSessions(bedId) { return state.vf.sessions.filter(x => x.bedId === bedId); }
+function vfInfo(bed) {
+  const steps = vfSteps(bed), done = steps.filter(s => s.status === 'COMPLETE').length, left = steps.length - done;
+  const ready = !!bed.pv && bed.pv.readyToVerify === true && left === 0;
+  const assignedNames = new Set(vfOpenSessions(bed.id).map(x => x.activity));
+  return { steps, done, left, ready, assigned: steps.filter(s => s.status !== 'COMPLETE' && assignedNames.has(s.name)).length };
+}
+const vfInTurnover = b => b.status === 'POST-HARVEST ACTIVITIES' || b.status === 'UNVERIFIED' || !!b.pv;
+
+function renderVerify() {
+  const v = state.vf, box = $('#verify-list'); if (!v) return;
+  const turn = v.beds.filter(vfInTurnover), infos = {}; turn.forEach(b => { infos[b.id] = vfInfo(b); });
+  const nReady = turn.filter(b => infos[b.id].ready).length, nRe = turn.filter(b => (v.reassigned[b.id] || []).length).length;
+  const planting = v.beds.filter(b => b.cohortStatus === 'PRE_PLANTING' && b.cohortId);
+  $$('#verify-seg button').forEach(b => {
+    const f = b.dataset.f, n = f === 'ready' ? nReady : f === 'reassigned' ? nRe : turn.length;
+    b.textContent = { all: 'Unverified', ready: 'Ready to verify', reassigned: 'Reassigned' }[f] + ' · ' + n;
+    b.setAttribute('aria-pressed', String(f === ui.vfFilter));
+  });
+  const blocks = Array.from(new Set(turn.map(b => b.block).filter(Boolean))).sort(vfNatural), sel = $('#verify-block');
+  sel.innerHTML = '<option value="">All blocks</option>' + blocks.map(x => `<option>${esc(x)}</option>`).join('');
+  sel.value = blocks.includes(ui.vfBlock) ? ui.vfBlock : ''; ui.vfBlock = sel.value;
+  const shown = turn.filter(b => (!ui.vfBlock || b.block === ui.vfBlock) &&
+    (ui.vfFilter === 'all' || (ui.vfFilter === 'ready' && infos[b.id].ready) || (ui.vfFilter === 'reassigned' && (v.reassigned[b.id] || []).length)))
+    .sort((a, b) => (infos[b.id].ready - infos[a.id].ready) || vfNatural(a.id, b.id));
+  const rows = shown.map(b => {
+    const i = infos[b.id], re = v.reassigned[b.id] || [], w = b.pv && b.pv.waiting;
+    return `<button class="item stripe ${i.ready ? 'low' : 'high'}" style="width:100%;text-align:left;background:var(--paper);border:0;border-bottom:1px solid var(--line);cursor:pointer" data-act="verify-open" data-bed="${esc(b.id)}" type="button">
+      <div class="item-top"><span class="item-title">${esc(b.id)}${b.block ? ' · ' + esc(b.block) : ''}</span><span class="item-time">${i.done} of ${i.steps.length} complete</span></div>
+      <div class="chips">${i.ready ? '<span class="chip">Ready to verify</span>' : '<span class="chip high">Not ready to sow</span>'}
+        ${w ? `<span class="chip med">Time gate${w.eligibleDate ? ' until ' + esc(fmtDate(w.eligibleDate)) : ''}</span>` : ''}
+        ${re.length ? `<span class="chip med">Reassigned from ${esc(re[0])}</span>` : ''}${i.assigned ? `<span class="chip neutral">${i.assigned} assigned</span>` : ''}</div>
+      <p class="sub">${i.ready ? 'Every activity is complete or overridden. Check the bed, then verify it.' : i.left + ' required ' + (i.left === 1 ? 'activity' : 'activities') + ' still to clear before sowing.'}</p></button>`;
+  }).join('');
+  const plantHtml = planting.length ? `<div class="bucket"><div class="bucket-head"><h3>Planting to verify</h3><span class="count">${planting.length}</span></div><div class="list">` +
+    planting.map(b => `<div class="item stripe low"><div class="item-top"><span class="item-title">${esc(b.id)} · ${esc(b.crop || b.cohortId)}</span><span class="item-time">${esc(b.cohortId)}</span></div>
+      <p class="sub">Assigned and reserved. Verify once the crop is in the ground.</p>
+      <div class="verify-row"><button class="btn btn-primary btn-block" data-act="verify-plant" data-bed="${esc(b.id)}" type="button">Verify planting</button></div></div>`).join('') + '</div></div>' : '';
+  box.innerHTML = plantHtml + `<div class="bucket"><div class="bucket-head"><h3>Bed turnover</h3><span class="count">${shown.length}</span></div>` +
+    (shown.length ? `<div class="list">${rows}</div>` : empty(turn.length ? 'Nothing matches' : 'Nothing is waiting for verification', turn.length ? 'Try another filter or block.' : 'Beds appear here while they are in turnover or not yet verified.')) + '</div>';
+}
+
+function renderVerifyBed() {
+  const v = state.vf, bed = v && v.beds.find(b => b.id === ui.vfBed), box = $('#vbed-body'); if (!bed) { ui.vfBed = null; ui.vfSkip = true; switchView('view-verify'); return; }
+  const info = vfInfo(bed), groups = [], sessions = vfOpenSessions(bed.id), openBy = {};
+  sessions.forEach(x => { (openBy[x.activity] = openBy[x.activity] || []).push(x); });
+  info.steps.forEach(s => { let gp = groups.find(x => x.name === s.domain); if (!gp) { gp = { name: s.domain, steps: [] }; groups.push(gp); } gp.steps.push(s); });
+  const upNext = groups.find(gp => gp.steps.some(s => s.status !== 'COMPLETE'));
+  const assignableLeft = info.steps.filter(s => vfAssignable(bed, s)).length, w = bed.pv && bed.pv.waiting;
+  const pv = bed.pv || {}, ovr = pv.overrides || [];
+  $('#h-vbed').textContent = 'Activities · ' + bed.id;
+  const stat = info.ready
+    ? `<div class="chips"><span class="chip">Ready to verify</span></div><p>All ${info.steps.length} activities are complete or overridden. Check the bed, then verify it.</p>
+       <div class="verify-row"><button class="btn btn-primary btn-block" data-act="verify-bed" type="button">Verify bed ready</button></div>`
+    : `<div class="chips"><span class="chip high">Not ready to sow</span></div><p><b>${info.left}</b> required ${info.left === 1 ? 'activity' : 'activities'} still to clear before sowing.</p>`;
+  const next = info.ready ? '' : `<div class="group" style="padding:14px 16px"><h3 style="font-size:19px;margin-bottom:6px">What to do next</h3>
+    ${w ? `<p>Waiting on a ${esc(titleCase(w.type))} time gate${w.eligibleDate ? ' until <b>' + esc(fmtDate(w.eligibleDate)) + '</b>' : ''}${w.daysRemaining != null ? ' (' + w.daysRemaining + ' day' + (w.daysRemaining === 1 ? '' : 's') + ')' : ''}. It unlocks <b>${esc(w.unlocksStep || '')}</b>.</p>` : ''}
+    ${assignableLeft ? `<p>${vfCohortTurnover(bed) ? 'Next step: <b>' + esc(pv.nextStep) + '</b>.' : 'Assign <b>' + assignableLeft + '</b> required ' + (assignableLeft === 1 ? 'activity' : 'activities') + '.'} Tick the activities, tick the workers, press Assign.</p>
+      <p class="sub" style="margin:10px 0 4px">Workers</p>
+      <div>${v.workers.map(x => `<label class="vrow" style="padding:6px 0;align-items:center"><input type="checkbox" data-act="vf-worker" data-id="${esc(x.id)}" ${ui.vfWorkers.has(x.id) ? 'checked' : ''}><span class="vbody">${esc(x.name)}</span></label>`).join('') || '<p class="sub">No workers are available to assign.</p>'}</div>
+      <div class="vbar" style="margin-top:10px"><button class="btn btn-primary" id="vf-assign" data-act="vf-assign" type="button" disabled>Assign</button>
+        <button class="btn" id="vf-override" data-act="vf-override" type="button" disabled>Override…</button></div>
+      <p class="hint" id="vf-hint" style="margin:0"></p>` : (w ? '' : '<p>Nothing can be assigned right now.</p>')}</div>`;
+  const grp = groups.map(gp => {
+    const d = gp.steps.filter(s => s.status === 'COMPLETE').length, state_ = d === gp.steps.length ? 'done' : (gp === upNext ? 'up next' : 'later');
+    return `<details class="group" ${gp === upNext ? 'open' : ''}><summary class="group-head" style="cursor:pointer"><b>${gp === upNext ? '▶ ' : ''}${esc(gp.name)}</b><span class="sub">${d} of ${gp.steps.length} completed (${state_})</span></summary>
+      <div class="list" style="border:0;border-radius:0">${gp.steps.map(s => {
+        const can = vfAssignable(bed, s), canOvr = s.status !== 'COMPLETE' && s.gate !== 'BUFFER', so = openBy[s.name] || [];
+        const chip = s.status === 'COMPLETE' ? (s.overridden ? '<span class="chip med">Overridden</span>' : '<span class="chip">Done</span>')
+          : s.gate === 'BUFFER' ? '<span class="chip med">Time gate (automatic)</span>' : (s.gate === 'WINDOW' && s.status !== 'OPEN' ? '<span class="chip med">Seasonal window not open</span>' : s.status === 'OPEN' ? '<span class="chip high">Up next</span>' : '<span class="chip neutral">Later</span>');
+        return `<div class="item"><div class="vrow">${(can || canOvr) && s.status !== 'COMPLETE' ? `<input type="checkbox" data-act="vf-step" data-name="${esc(s.name)}" data-can="${can ? 1 : 0}" ${ui.vfSteps.has(s.name) ? 'checked' : ''} aria-label="Select ${esc(s.name)}">` : '<span style="width:28px;flex:none"></span>'}
+          <div class="vbody"><div class="item-top"><span class="item-title">${esc(s.name)}</span></div><div class="chips">${chip}</div>
+          ${state.vf.descOf[s.name] ? `<p class="sub">${esc(state.vf.descOf[s.name])}</p>` : ''}
+          ${so.length ? `<p class="sub">${so.map(x => esc(x.worker) + ' (' + esc(titleCase(x.status === 'ASSIGNED' ? 'not started' : x.status)) + ')').join(', ')}</p>` : ''}</div></div></div>`;
+      }).join('')}</div></details>`;
+  }).join('');
+  box.innerHTML = `<div class="sec-head"><h2 style="font-size:20px">Activities · for bed ${esc(bed.id)} · ${info.done} of ${info.steps.length} complete</h2></div>
+    <p class="meta">${esc([bed.block, bed.status && titleCase(bed.status), bed.cohortId && bed.crop ? bed.crop + ' (' + bed.cohortId + ')' : ''].filter(Boolean).join(' · '))}</p>
+    <div class="group" style="padding:14px 16px">${stat}</div>${next}
+    <div class="bucket-head" style="margin-top:6px"><h3>Activities · ${info.done} of ${info.steps.length} completed</h3></div>${grp}
+    <div class="bucket-head" style="margin-top:14px"><h3>Overrides</h3><span class="count">${ovr.length}</span></div>
+    ${ovr.length ? '<div class="list">' + ovr.map(o => `<div class="item"><div class="item-top"><span class="item-title">${esc(o.name)}</span><span class="item-time">${esc(o.date)}</span></div><p class="sub">${esc(workerName(o.by) || o.by)}: ${esc(o.reason)}</p></div>`).join('') + '</div>' : '<p class="sub">None. A manager can skip a step with a written reason.</p>'}
+    <div class="bucket-head" style="margin-top:14px"><h3>Dispatch · ${info.assigned} of ${info.left} remaining assigned</h3></div>
+    ${sessions.length ? '<div class="list">' + sessions.map(x => `<div class="item"><div class="item-top"><span class="item-title">${esc(x.activity)}</span><span class="item-time">${esc(titleCase(x.status === 'ASSIGNED' ? 'not started' : x.status))}</span></div><p class="sub">${esc(x.worker)}</p></div>`).join('') + '</div>' : '<p class="sub">Nothing is assigned on this bed yet.</p>'}`;
+  syncVfBar();
+}
+function syncVfBar() {
+  const a = $('#vf-assign'), o = $('#vf-override'), h = $('#vf-hint'); if (!a) return;
+  const bed = state.vf.beds.find(b => b.id === ui.vfBed), st = bed ? vfSteps(bed) : [];
+  const n = ui.vfSteps.size, m = ui.vfWorkers.size, nA = [...ui.vfSteps].filter(x => { const q = st.find(y => y.name === x); return q && vfAssignable(bed, q); }).length;
+  a.disabled = !(nA && m); o.disabled = !n;
+  a.textContent = nA && m ? `Assign (${nA} \u00d7 ${m})` : 'Assign';
+  h.textContent = !n ? 'Tick at least one activity.' : !nA ? 'Those activities can only be overridden right now.' : !m ? 'Now tick at least one worker.' : '';
+}
+function openVerifyBed(id) { ui.vfBed = id; ui.vfSkip = true; ui.vfSteps = new Set(); ui.vfWorkers = new Set(); switchView('view-verify-bed'); renderVerifyBed(); }
+const VF_ERR = { POST_HARVEST_OUT_OF_SEQUENCE: 'not available yet (already done, an automatic wait, or its seasonal window is not open)', BED_NOT_ELIGIBLE_FOR_POST_HARVEST: 'this bed is not eligible for post-harvest work',
+  POST_HARVEST_NOT_APPLICABLE: 'not required for this crop', STAGE_NOT_ALLOWED: 'not allowed at this stage' };
+async function vfAssign() {
+  const bed = state.vf.beds.find(b => b.id === ui.vfBed); if (!bed || !ui.vfSteps.size || !ui.vfWorkers.size) return;
+  const names = [...ui.vfSteps].filter(n => { const s = vfSteps(bed).find(x => x.name === n); return s && vfAssignable(bed, s); });
+  if (!names.length) { toast('Those activities cannot be assigned right now.'); return; }
+  const btn = $('#vf-assign'); btn.disabled = true; btn.textContent = 'Assigning…';
+  try {
+    const r = await apiCall(ACTIONS.startSessions, { bedId: bed.id, assignments: names.map(a => ({ activity: a, workerIds: [...ui.vfWorkers] })) }, VF_TIMEOUT_MS);
+    const created = listOf(r, 'created'), failed = listOf(r, 'failed'), skipped = listOf(r, 'skipped');
+    const why = failed.slice(0, 3).map(f => (g(f, 'activity') || '') + ': ' + (VF_ERR[g(f, 'errorCode', 'code')] || g(f, 'errorCode', 'code') || 'refused')).join('; ');
+    toast(created.length + ' assigned' + (skipped.length ? ', ' + skipped.length + ' already open' : '') + (failed.length ? ', ' + failed.length + ' refused (' + why + ')' : '') + '.');
+    if (created.length) { ui.vfSteps = new Set(); await loadVerify({ silent: true }); } else syncVfBar();
+  } catch (err) { toast(err.message); syncVfBar(); }
+}
+function vfOverrideSheet() {
+  const bed = state.vf.beds.find(b => b.id === ui.vfBed); if (!bed || !ui.vfSteps.size) return;
+  const names = [...ui.vfSteps], busy = names.filter(n => vfOpenSessions(bed.id).some(x => x.activity === n));
+  if (busy.length) { toast(busy[0] + ' has an open session. Clear or finish it first.'); return; }
+  openSheet({
+    title: 'Override ' + names.length + (names.length === 1 ? ' step' : ' steps'),
+    body: sumRows([['Bed', bed.id], ['Steps', names.join(', ')]]) +
+      '<label class="field"><span>Reason (required)</span><input class="input" id="vo-reason" maxlength="200" autocomplete="off" placeholder="e.g. no cover crop this year"></label>' +
+      '<p class="hint">The step counts as complete, and who, when and why is logged. Overriding never releases the bed; you still verify it ready.</p>',
+    actions: [{ label: 'Override', primary: true, done: 'Override recorded.', run: async () => {
+      const reason = ($('#vo-reason').value || '').trim();
+      if (reason.length < 5) throw apiError('Enter a reason of at least 5 characters.', 'INPUT');
+      await apiCall(ACTIONS.overridePostHarvest, { cohortId: vfKey(bed), activities: names, reason }, VF_TIMEOUT_MS);
+      ui.vfSteps = new Set(); await loadVerify({ silent: true });
+    } }]
+  });
+}
+function vfVerifyBedSheet() {
+  const bed = state.vf.beds.find(b => b.id === ui.vfBed); if (!bed) return;
+  const info = vfInfo(bed), viaCohort = vfCohortTurnover(bed) && bed.cohortId, ovr = ((bed.pv || {}).overrides || []).length;
+  openSheet({
+    title: 'Verify bed ready',
+    body: sumRows([['Bed', bed.id], ['Cohort', viaCohort ? bed.cohortId : ''], ['Activities', info.steps.length + ' complete or overridden'], ['Overridden', ovr ? String(ovr) : '']]) +
+      '<p class="hint">Only verify after you have checked the bed. This releases it for the next crop and cannot be undone from this app.</p>',
+    actions: [{ label: 'Verify bed ready', primary: true, done: 'Bed verified ready.', run: async () => {
+      if (viaCohort) await apiCall(ACTIONS.completeCohort, { cohortId: bed.cohortId }); else await apiCall(ACTIONS.verifyBedReady, { bedId: bed.id });
+      await loadVerify({ silent: true }); ui.vfBed = null; ui.vfSkip = true; switchView('view-verify');
+    } }]
+  });
+}
+function vfPlantSheet(bedId) {
+  const bed = state.vf.beds.find(b => b.id === bedId); if (!bed) return;
+  const t = new Date(), today = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');   // local day, not UTC
+  openSheet({
+    title: 'Verify planting',
+    body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
+      `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${today}" max="${today}"></label>` +
+      '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted.</p>',
+    actions: [{ label: 'Verify planting', primary: true, done: 'Planting verified.', run: async () => {
+      await apiCall(ACTIONS.verifyPlanting, { cohortId: bed.cohortId, actualDob: $('#vp-date').value });
+      await loadVerify({ silent: true });
+    } }]
+  });
 }
 
 /* ----- 5. scouting ----- */
@@ -1046,11 +1283,21 @@ document.addEventListener('click', e => {
     case 'scan-camera': scanCamera(); break;
     case 'scan-stop': stopScan(); break;
     case 'activity-type': ui.activityType = t.dataset.type; renderActivityLog(); break;
+    case 'vf-filter': ui.vfFilter = t.dataset.f; renderVerify(); break;
+    case 'verify-open': openVerifyBed(t.dataset.bed); break;
+    case 'vf-back': ui.vfBed = null; ui.vfSkip = true; switchView('view-verify'); break;
+    case 'verify-plant': vfPlantSheet(t.dataset.bed); break;
+    case 'verify-bed': vfVerifyBedSheet(); break;
+    case 'vf-worker': (t.checked ? ui.vfWorkers.add(t.dataset.id) : ui.vfWorkers.delete(t.dataset.id)); syncVfBar(); break;
+    case 'vf-step': (t.checked ? ui.vfSteps.add(t.dataset.name) : ui.vfSteps.delete(t.dataset.name)); syncVfBar(); break;
+    case 'vf-assign': vfAssign(); break;
+    case 'vf-override': vfOverrideSheet(); break;
   }
 });
 ['#login-id', '#login-pin'].forEach(s => $(s).addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); }));
 $('#scan-input').addEventListener('keydown', e => { if (e.key === 'Enter') handleScan(e.target.value); });
 $('#activity-worker').addEventListener('change', renderActivityLog);
+$('#verify-block').addEventListener('change', e => { ui.vfBlock = e.target.value; renderVerify(); });
 ['#scout-bed', '#scout-domain', '#scout-status'].forEach(s => $(s).addEventListener('change', renderScouting));
 
 /* board auto-refresh and live elapsed timers */
@@ -1102,6 +1349,24 @@ const mock = (() => {
     harvestable: [
       { cohortId: 'ARU-C03', cropName: 'Arugula', beds: ['B-03', 'B-04'], lastHarvestTime: min(255), totalWeight: '38 kg', fieldState: 'HARVESTING' }]
   };
+  /* verify demo data: shapes mirror getPostHarvestView_ (BedStatusEngine.gs) inside get-manager-today-view */
+  const PH = [['Clearing and residue', ['Remove crop residue', 'Pull drip tape', 'Clear weeds and debris', 'Remove plastic mulch', 'Haul off waste']],
+    ['Soil reset', ['Incorporate residue', 'Soil test', 'Apply compost', 'Broadfork', 'Rake and level']],
+    ['Prep for next crop', ['Cover crop seeding', 'Lay drip tape', 'Bed inspection', 'Flag and label bed', 'Final walk-through']]];
+  const BUFFER = 'Incorporate residue', WINDOW = 'Cover crop seeding';
+  const mkSteps = (done, extra) => { let i = 0; const out = []; PH.forEach(([dom, names]) => names.forEach(n => { const complete = i < done; out.push(Object.assign({ name: n, domain: dom, gate: n === BUFFER ? 'BUFFER' : n === WINDOW ? 'WINDOW' : '', status: complete ? 'COMPLETE' : 'PENDING', overridden: false }, extra && extra[n] || {})); i++; })); return out; };
+  const vf = {
+    beds: [
+      { bedId: 'B-12', blockId: 'Block 3', bedStatus: 'POST-HARVEST ACTIVITIES', postHarvest: { bedLevel: true, steps: mkSteps(3), readyToVerify: false, waiting: { type: 'BUFFER', eligibleDate: ahead(60 * 24 * 3), daysRemaining: 3, unlocksStep: 'Soil test' }, overrides: [] } },
+      { bedId: 'B-21', blockId: 'Block 3', bedStatus: 'POST-HARVEST ACTIVITIES', postHarvest: { bedLevel: true, steps: mkSteps(0), readyToVerify: false, waiting: null, overrides: [] } },
+      { bedId: 'B-03', blockId: 'Block 1', bedStatus: 'POST-HARVEST ACTIVITIES', cohortId: 'ARU-C03', cropName: 'Arugula', cohortStatus: 'HARVESTED', postHarvest: { bedLevel: false, nextStep: 'Remove crop residue', steps: mkSteps(0).map((x, k) => Object.assign(x, { status: k === 0 ? 'OPEN' : 'PENDING' })), readyToVerify: false, waiting: null, overrides: [] } },
+      { bedId: 'B-15', blockId: 'Block 2', bedStatus: 'POST-HARVEST ACTIVITIES', postHarvest: { bedLevel: true, steps: mkSteps(15), readyToVerify: true, waiting: null, overrides: [{ name: 'Cover crop seeding', date: min(60 * 30), by: 'W01', reason: 'No cover crop this season' }] } },
+      { bedId: 'B-09', blockId: 'Block 2', bedStatus: 'UNVERIFIED' },
+      { bedId: 'B-30', blockId: 'Block 4', bedStatus: 'RESERVED', cohortId: 'KAL-C05', cropName: 'Kale', cohortStatus: 'PRE_PLANTING' }],
+    sessions: [{ id: 'S-2001', bedId: 'B-12', activity: 'Clear weeds and debris', workerId: 'W02', workerName: 'Ben Okafor', status: 'ASSIGNED' }]
+  };
+  vf.beds[3].postHarvest.steps[10].overridden = true;
+  const catalog = PH.flatMap(([dom, names]) => names.map(n => ({ id: 'PH_' + n, name: n, domain: dom, description: 'Post-harvest step: ' + n.toLowerCase() + '.', postHarvestSequence: 1 })));
   const ok = data => ({ ok: true, data });
   const bad = (msg, code) => ({ ok: false, error: msg, code });
   const APP_ROLES = { ManagerApp: ['Manager', 'Founder'], WorkerApp: ['Worker', 'Technician', 'Scout'], ranch_aab: ['Manager', 'Founder'] };
@@ -1143,6 +1408,36 @@ const mock = (() => {
       }
       case 'verify-harvest-ready': d.candidates = d.candidates.filter(c => c.cohortId !== p.cohortId); return ok({ done: true });
       case 'verify-harvest-complete': d.harvestable = d.harvestable.filter(c => c.cohortId !== p.cohortId); return ok({ done: true });
+      case 'get-manager-today-view': return ok({ beds: vf.beds, sessions: vf.sessions, workers: d.workers, activityCatalog: catalog });
+      case 'start-sessions': {
+        const created = [], failed = [];
+        (p.assignments || []).forEach(a => {
+          const bd = vf.beds.find(b => b.bedId === p.bedId), st = bd && bd.postHarvest && bd.postHarvest.steps.find(x => x.name === a.activity);
+          if (st && st.gate === 'BUFFER') { failed.push({ activity: a.activity, errorCode: 'POST_HARVEST_OUT_OF_SEQUENCE' }); return; }
+          (a.workerIds || []).forEach(w => { const wk = d.workers.find(x => x.workerId === w); vf.sessions.push({ id: 'S-' + (3000 + vf.sessions.length), bedId: p.bedId, activity: a.activity, workerId: w, workerName: wk ? wk.name : w, status: 'ASSIGNED' }); created.push({ activity: a.activity, workerId: w }); });
+        });
+        return ok({ created, failed, skipped: [] });
+      }
+      case 'override-post-harvest': {
+        const key = String(p.cohortId || ''), bd = vf.beds.find(b => key === 'BED:' + b.bedId || (b.cohortId && b.cohortId === key));
+        if (!bd || !bd.postHarvest) return bad('This bed is not in post-harvest.', 'NOT_IN_POST_HARVEST');
+        if (String(p.reason || '').trim().length < 5) return bad('Enter a reason of at least 5 characters.', 'OVERRIDE_REASON_REQUIRED');
+        (p.activities || []).forEach(n => { const st = bd.postHarvest.steps.find(x => x.name === n); if (st) { st.status = 'COMPLETE'; st.overridden = true; } bd.postHarvest.overrides.push({ name: n, date: new Date().toISOString(), by: me.id, reason: p.reason }); });
+        bd.postHarvest.readyToVerify = bd.postHarvest.steps.every(x => x.status === 'COMPLETE');
+        return ok({ overridden: p.activities });
+      }
+      case 'verify-bed-ready': case 'complete-cohort': {
+        const bd = vf.beds.find(b => b.bedId === p.bedId || (b.cohortId && b.cohortId === p.cohortId));
+        if (!bd) return bad('Bed not found.', 'NOT_FOUND');
+        if (!bd.postHarvest || !bd.postHarvest.readyToVerify) return bad('Post-harvest activities are still outstanding on this bed.', 'POST_HARVEST_OUTSTANDING');
+        vf.beds = vf.beds.filter(b => b !== bd); return ok({ done: true });
+      }
+      case 'verify-planting': {
+        const bd = vf.beds.find(b => b.cohortId === p.cohortId && b.cohortStatus === 'PRE_PLANTING');
+        if (!bd) return bad('Cohort is not waiting for planting verification.', 'WRONG_STATUS');
+        if (new Date(p.actualDob + 'T00:00:00') > new Date()) return bad('The planting date ' + p.actualDob + ' is in the future. Verify planting only after the crop is in the ground.', 'FUTURE_ACTUAL_DOB');
+        bd.cohortStatus = 'ACTIVE'; bd.bedStatus = 'PLANTED'; return ok({ done: true });
+      }
       default: return bad('That action is not available.', 'UNKNOWN_ACTION');
     }
   };
