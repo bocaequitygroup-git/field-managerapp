@@ -970,10 +970,10 @@ function vfRowHtml(b, i, re) {
   const w = b.pv && b.pv.waiting;
   return `<button class="item stripe ${i.ready ? 'low' : 'high'}" style="width:100%;text-align:left;background:var(--paper);border:0;border-bottom:1px solid var(--line);cursor:pointer" data-act="verify-open" data-bed="${esc(b.id)}" type="button">
       <div class="item-top"><span class="item-title">${esc(b.id)}${b.block ? ' · ' + esc(b.block) : ''}</span><span class="item-time">${i.done} of ${i.steps.length} complete</span></div>
-      <div class="chips">${i.ready ? '<span class="chip">Ready to verify</span>' : '<span class="chip high">Not ready to sow</span>'}
+      <div class="chips">${i.ready ? '<span class="chip">Ready to verify</span>' : '<span class="chip high">Not ready to plant</span>'}
         ${w ? `<span class="chip med">Time gate${w.eligibleDate ? ' until ' + esc(fmtDate(w.eligibleDate)) : ''}</span>` : ''}
         ${re.length ? `<span class="chip med">Reassigned from ${esc(re[0])}</span>` : ''}${i.assigned ? `<span class="chip neutral">${i.assigned} assigned</span>` : ''}${i.pending ? `<span class="chip med">${i.pending} to verify</span>` : ''}${i.last ? `<span class="chip neutral">Last activity ${esc(fmtDate(i.last))}</span>` : ''}</div>
-      <p class="sub">${i.ready ? 'Every activity is complete or overridden. Check the bed, then verify it.' : i.left + ' required ' + (i.left === 1 ? 'activity' : 'activities') + ' still to clear before sowing.'}</p></button>`;
+      <p class="sub">${i.ready ? 'Every activity is complete or overridden. Check the bed, then verify it.' : i.left + ' required ' + (i.left === 1 ? 'activity' : 'activities') + ' still to clear before planting.'}</p></button>`;
 }
 function renderVerify() {
   const v = state.vf, box = $('#verify-list'); if (!v) return;
@@ -1048,7 +1048,7 @@ function renderVerifyBed() {
   const stat = info.ready
     ? `<div class="chips"><span class="chip">Ready to verify</span>${info.pending ? `<span class="chip med">${info.pending} pending verification</span>` : ''}</div><p>All ${info.steps.length} activities are complete or overridden. ${info.pending ? 'Verify the completed activities below, or verify the bed and they are signed off with it.' : 'Check the bed, then verify it.'}</p>
        <div class="verify-row"><button class="btn btn-primary btn-block" data-act="verify-bed" type="button">Verify bed ready</button></div>`
-    : `<div class="chips"><span class="chip high">Not ready to sow</span></div><p><b>${info.left}</b> required ${info.left === 1 ? 'activity' : 'activities'} still to clear before sowing.</p>`;
+    : `<div class="chips"><span class="chip high">Not ready to plant</span></div><p><b>${info.left}</b> required ${info.left === 1 ? 'activity' : 'activities'} still to clear before planting.</p>`;
   const next = info.ready ? '' : `<div class="group" style="padding:14px 16px"><h3 style="font-size:19px;margin-bottom:6px">What to do next</h3>
     ${w ? `<p>Waiting on a ${esc(titleCase(w.type))} time gate${w.eligibleDate ? ' until <b>' + esc(fmtDate(w.eligibleDate)) + '</b>' : ''}${w.daysRemaining != null ? ' (' + w.daysRemaining + ' day' + (w.daysRemaining === 1 ? '' : 's') + ')' : ''}. It unlocks <b>${esc(w.unlocksStep || '')}</b>.</p>` : ''}
     ${assignableLeft ? `<p>${vfCohortTurnover(bed) ? 'Next step: <b>' + esc(pv.nextStep) + '</b>.' : 'Assign <b>' + assignableLeft + '</b> required ' + (assignableLeft === 1 ? 'activity' : 'activities') + '.'} Tick the activities, tick the workers, press Assign.</p>
@@ -1497,7 +1497,7 @@ const mock = (() => {
       { timestamp: min(200), fromWorkerId: 'W03', toWorkerId: 'W01', mode: 'reassign', bedId: 'B-12', cohortId: 'LET-C01', taskType: 'Weeding', managerName: 'Maya Ortiz', note: 'Ana is closer to the block' },
       { timestamp: min(1500), fromWorkerId: 'W02', toWorkerId: 'W03', mode: 'close-and-new', bedId: 'B-03', cohortId: 'ARU-C03', taskType: 'Harvest', managerName: 'Sam Reyes', note: '' }],
     activity: [
-      { type: 'session', workerId: 'W02', taskType: 'Seeding', bedId: 'B-05', cohortId: 'ARU-C04', startTime: min(420), endTime: min(370), durationMinutes: 50, description: 'Sow seed directly into a prepared bed at spec depth and spacing.' },
+      { type: 'session', workerId: 'W02', taskType: 'Seeding', bedId: 'B-05', cohortId: 'ARU-C04', startTime: min(420), endTime: min(370), durationMinutes: 50, description: 'Seed directly into a prepared bed at spec depth and spacing.' },
       { type: 'session', workerId: 'W01', taskType: 'Harvest', bedId: 'B-03', cohortId: 'ARU-C03', startTime: min(330), endTime: min(255), durationMinutes: 75, notes: 'Two crates, cold chain ok', description: 'Remove marketable product from the crop and move it into cold chain.' },
       { type: 'cohort-state', workerId: 'W01', cohortId: 'ARU-C03', bedId: 'B-03', fromState: 'HARVEST_READY', toState: 'HARVESTING', timestamp: min(335) },
       { type: 'session', workerId: 'W03', taskType: 'Irrigation check', bedId: 'B-20', startTime: min(600), endTime: min(585), durationMinutes: 15, description: 'Walk the irrigation zone and confirm emitters are running and undamaged.' }],
