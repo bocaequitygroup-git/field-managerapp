@@ -177,6 +177,12 @@ h2[tabindex]:focus { outline: none; }
 .scan label { font-weight: 700; display: block; margin-bottom: 6px; }
 .item.hit { background: #FFF6CF; outline: 3px solid #E5B800; outline-offset: -3px; }
 .verify-row { margin-top: 10px; }
+.vf-ghead { width: 100%; border: 0; font: inherit; text-align: left; cursor: pointer; color: inherit; flex-wrap: wrap; }
+.vf-ghead .vf-caret { display: inline-block; width: 1.1em; }
+.vf-gchips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.bedgrid { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+.bedpill { min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--paper); font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; }
+.vf-subhead { padding: 10px 16px 0; font-weight: 700; color: var(--muted); }
 
 /* ---------- verify ---------- */
 .vrow { display: flex; gap: 12px; align-items: flex-start; }
@@ -339,13 +345,23 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
     <div class="viewbar"><button class="btn btn-back" data-act="back" type="button">Board</button><h2 id="h-verify" tabindex="-1">Verify</h2></div>
     <p class="meta" style="margin:-6px 0 14px">Beds in turnover that a manager has to clear and verify. Worker logging alone never releases a bed.</p>
     <div class="seg" id="verify-seg" role="group" aria-label="Filter">
-      <button type="button" data-act="vf-filter" data-f="all" aria-pressed="true">Unverified</button>
+      <button type="button" data-act="vf-filter" data-f="action" aria-pressed="true">Needs action</button>
       <button type="button" data-act="vf-filter" data-f="ready" aria-pressed="false">Ready to verify</button>
+      <button type="button" data-act="vf-filter" data-f="notstarted" aria-pressed="false">Not started</button>
       <button type="button" data-act="vf-filter" data-f="reassigned" aria-pressed="false">Reassigned</button>
+      <button type="button" data-act="vf-filter" data-f="all" aria-pressed="false">All beds</button>
     </div>
-    <div class="filters" style="grid-template-columns:minmax(0,1fr)">
-      <label class="field"><span>Block</span><select class="input" id="verify-block"><option value="">All blocks</option></select></label>
+    <div class="filters">
+      <label class="field" style="grid-column:1/-1"><span>Block</span><select class="input" id="verify-block"><option value="">All blocks</option></select></label>
+      <label class="field"><span>Activity from</span><input class="input" id="verify-from" type="date"></label>
+      <label class="field"><span>Activity to</span><input class="input" id="verify-to" type="date"></label>
     </div>
+    <div class="seg" id="verify-dates" role="group" aria-label="Date shortcuts">
+      <button type="button" data-act="vf-date" data-d="today" aria-pressed="false">Today</button>
+      <button type="button" data-act="vf-date" data-d="7" aria-pressed="false">Last 7 days</button>
+      <button type="button" data-act="vf-date" data-d="any" aria-pressed="true">Any date</button>
+    </div>
+    <p class="meta" id="verify-hint" style="margin:-4px 0 12px" hidden></p>
     <div id="verify-list"></div>
   </section>
 
@@ -439,7 +455,7 @@ const state = {
   activityLog: [], scoutFindings: [], vf: null,
   queue: { generatedAt: null, counts: {}, mustDo: [], attention: [], routine: [] }
 };
-const ui = { view: 'view-login', activityType: 'all', loaded: {}, vfFilter: 'all', vfBlock: '', vfBed: null, vfSkip: false, vfSteps: new Set(), vfWorkers: new Set(), vfVerify: new Set() };
+const ui = { view: 'view-login', activityType: 'all', loaded: {}, vfFilter: 'action', vfFrom: '', vfTo: '', vfOpen: {}, vfBlock: '', vfBed: null, vfSkip: false, vfSteps: new Set(), vfWorkers: new Set(), vfVerify: new Set() };
 
 /* ==========================================================================
    SMALL HELPERS
@@ -558,7 +574,7 @@ function clearState() {
     harvestCandidates: [], harvestableCohorts: [], activityLog: [], scoutFindings: [],
     queue: { generatedAt: null, counts: {}, mustDo: [], attention: [], routine: [] } });
   ui.loaded = {}; ui.activityType = 'all'; state.vf = null;
-  Object.assign(ui, { vfFilter: 'all', vfBlock: '', vfBed: null, vfSkip: false, vfSteps: new Set(), vfWorkers: new Set() });
+  Object.assign(ui, { vfFilter: 'action', vfFrom: '', vfTo: '', vfOpen: {}, vfBlock: '', vfBed: null, vfSkip: false, vfSteps: new Set(), vfWorkers: new Set() });
   renderHeader();
 }
 
@@ -836,6 +852,7 @@ async function loadVerify(opts = {}) {
     const open = new Set(['ASSIGNED', 'ACTIVE', 'PAUSED', 'EXCEPTION']);
     const sessions = listOf(day, 'sessions').filter(s => open.has(String(g(s, 'status') || '').toUpperCase())).map(s => ({
       id: g(s, 'id') || '', bedId: String(g(s, 'bedId') || ''), activity: g(s, 'activity') || '', worker: g(s, 'workerName') || g(s, 'workerId') || '',
+      assignedTime: g(s, 'assignedTime') || '', startTime: g(s, 'startTime') || '', scheduledDate: g(s, 'scheduledDate') || '',
       status: String(g(s, 'status') || '').toUpperCase() }));
     const reassigned = {};   // bedId -> names the board says were handed over
     if (board) listOf(board, 'sessions', 'openSessions', 'board').map(normSession).forEach(s => { if (s.reassignedFrom) (reassigned[s.bedId] = reassigned[s.bedId] || []).push(workerName(s.reassignedFrom)); });
@@ -894,37 +911,95 @@ function vfWorkHtml(s) {
     (w.verified ? `<p class="sub">Verified by ${esc(w.verifiedByName || w.verifiedBy)} · ${esc(fmtWhen(w.verifiedAt))}</p>` : '');
 }
 
+/* ----- verify list: grouped by block, filtered by progress and by activity date -----
+   Progress state of a bed in turnover:  ready = every step complete/overridden; started = something done, assigned, awaiting
+   verification or reassigned; notstarted = untouched (a bed that has not begun its reset). Date filter: a bed matches when any
+   activity on it (a step completed, or a task assigned / started / scheduled) falls inside the chosen days. */
+const vfDay = v => {   // 'YYYY-MM-DD' stays a local calendar day (new Date('2026-10-27') would be UTC and can land on the day before)
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) { const [y, m, d] = v.trim().split('-').map(Number); return new Date(y, m - 1, d); }
+  return toDate(v);
+};
+const vfIso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+function vfActivityTimes(bed) {
+  const out = [];
+  (bed.pv ? bed.pv.steps : []).forEach(st => { if (st.work) { const d = vfDay(st.work.completedAt); if (d) out.push(d.getTime()); } });
+  vfOpenSessions(bed.id).forEach(x => [x.assignedTime, x.startTime, x.scheduledDate].forEach(v => { const d = vfDay(v); if (d) out.push(d.getTime()); }));
+  return out;
+}
+function vfDateOk(times) {
+  if (!ui.vfFrom && !ui.vfTo) return true;
+  const from = ui.vfFrom ? vfDay(ui.vfFrom).getTime() : -Infinity;
+  const to = ui.vfTo ? vfDay(ui.vfTo).getTime() + 86400000 - 1 : Infinity;
+  return times.some(t => t >= from && t <= to);
+}
+function vfRowHtml(b, i, re) {
+  const w = b.pv && b.pv.waiting;
+  return `<button class="item stripe ${i.ready ? 'low' : 'high'}" style="width:100%;text-align:left;background:var(--paper);border:0;border-bottom:1px solid var(--line);cursor:pointer" data-act="verify-open" data-bed="${esc(b.id)}" type="button">
+      <div class="item-top"><span class="item-title">${esc(b.id)}${b.block ? ' · ' + esc(b.block) : ''}</span><span class="item-time">${i.done} of ${i.steps.length} complete</span></div>
+      <div class="chips">${i.ready ? '<span class="chip">Ready to verify</span>' : '<span class="chip high">Not ready to sow</span>'}
+        ${w ? `<span class="chip med">Time gate${w.eligibleDate ? ' until ' + esc(fmtDate(w.eligibleDate)) : ''}</span>` : ''}
+        ${re.length ? `<span class="chip med">Reassigned from ${esc(re[0])}</span>` : ''}${i.assigned ? `<span class="chip neutral">${i.assigned} assigned</span>` : ''}${i.pending ? `<span class="chip med">${i.pending} to verify</span>` : ''}${i.last ? `<span class="chip neutral">Last activity ${esc(fmtDate(i.last))}</span>` : ''}</div>
+      <p class="sub">${i.ready ? 'Every activity is complete or overridden. Check the bed, then verify it.' : i.left + ' required ' + (i.left === 1 ? 'activity' : 'activities') + ' still to clear before sowing.'}</p></button>`;
+}
 function renderVerify() {
   const v = state.vf, box = $('#verify-list'); if (!v) return;
-  const turn = v.beds.filter(vfInTurnover), infos = {}; turn.forEach(b => { infos[b.id] = vfInfo(b); });
-  const nReady = turn.filter(b => infos[b.id].ready).length, nRe = turn.filter(b => (v.reassigned[b.id] || []).length).length;
+  const turn = v.beds.filter(vfInTurnover), infos = {};
+  turn.forEach(b => {
+    const i = vfInfo(b), re = v.reassigned[b.id] || [], times = vfActivityTimes(b);
+    i.re = re; i.times = times; i.last = times.length ? Math.max.apply(null, times) : 0;
+    i.started = !i.ready && (i.done > 0 || i.assigned > 0 || i.pending > 0 || re.length > 0);
+    i.notstarted = !i.ready && !i.started;
+    infos[b.id] = i;
+  });
+  const nReady = turn.filter(b => infos[b.id].ready).length, nRe = turn.filter(b => infos[b.id].re.length).length;
+  const nStarted = turn.filter(b => infos[b.id].started).length, nNot = turn.filter(b => infos[b.id].notstarted).length;
   const planting = v.beds.filter(b => b.cohortStatus === 'PRE_PLANTING' && b.cohortId);
-  $$('#verify-seg button').forEach(b => {
-    const f = b.dataset.f, n = f === 'ready' ? nReady : f === 'reassigned' ? nRe : turn.length;
-    b.textContent = { all: 'Unverified', ready: 'Ready to verify', reassigned: 'Reassigned' }[f] + ' · ' + n;
-    b.setAttribute('aria-pressed', String(f === ui.vfFilter));
+  const counts = { action: nReady + nStarted, ready: nReady, notstarted: nNot, reassigned: nRe, all: turn.length };
+  const labels = { action: 'Needs action', ready: 'Ready to verify', notstarted: 'Not started', reassigned: 'Reassigned', all: 'All beds' };
+  $$('#verify-seg button').forEach(b => { const f = b.dataset.f; b.textContent = labels[f] + ' · ' + counts[f]; b.setAttribute('aria-pressed', String(f === ui.vfFilter)); });
+  const today = vfIso(new Date()), wk = vfIso(new Date(Date.now() - 6 * 86400000));
+  $('#verify-from').value = ui.vfFrom; $('#verify-to').value = ui.vfTo;
+  $$('#verify-dates button').forEach(b => {
+    const d = b.dataset.d, on = d === 'any' ? (!ui.vfFrom && !ui.vfTo) : d === 'today' ? (ui.vfFrom === today && ui.vfTo === today) : (ui.vfFrom === wk && ui.vfTo === today);
+    b.setAttribute('aria-pressed', String(on));
   });
   const blocks = Array.from(new Set(turn.map(b => b.block).filter(Boolean))).sort(vfNatural), sel = $('#verify-block');
   sel.innerHTML = '<option value="">All blocks</option>' + blocks.map(x => `<option>${esc(x)}</option>`).join('');
   sel.value = blocks.includes(ui.vfBlock) ? ui.vfBlock : ''; ui.vfBlock = sel.value;
-  const shown = turn.filter(b => (!ui.vfBlock || b.block === ui.vfBlock) &&
-    (ui.vfFilter === 'all' || (ui.vfFilter === 'ready' && infos[b.id].ready) || (ui.vfFilter === 'reassigned' && (v.reassigned[b.id] || []).length)))
-    .sort((a, b) => (infos[b.id].ready - infos[a.id].ready) || vfNatural(a.id, b.id));
-  const rows = shown.map(b => {
-    const i = infos[b.id], re = v.reassigned[b.id] || [], w = b.pv && b.pv.waiting;
-    return `<button class="item stripe ${i.ready ? 'low' : 'high'}" style="width:100%;text-align:left;background:var(--paper);border:0;border-bottom:1px solid var(--line);cursor:pointer" data-act="verify-open" data-bed="${esc(b.id)}" type="button">
-      <div class="item-top"><span class="item-title">${esc(b.id)}${b.block ? ' · ' + esc(b.block) : ''}</span><span class="item-time">${i.done} of ${i.steps.length} complete</span></div>
-      <div class="chips">${i.ready ? '<span class="chip">Ready to verify</span>' : '<span class="chip high">Not ready to sow</span>'}
-        ${w ? `<span class="chip med">Time gate${w.eligibleDate ? ' until ' + esc(fmtDate(w.eligibleDate)) : ''}</span>` : ''}
-        ${re.length ? `<span class="chip med">Reassigned from ${esc(re[0])}</span>` : ''}${i.assigned ? `<span class="chip neutral">${i.assigned} assigned</span>` : ''}${i.pending ? `<span class="chip med">${i.pending} to verify</span>` : ''}</div>
-      <p class="sub">${i.ready ? 'Every activity is complete or overridden. Check the bed, then verify it.' : i.left + ' required ' + (i.left === 1 ? 'activity' : 'activities') + ' still to clear before sowing.'}</p></button>`;
+
+  const pass = b => { const i = infos[b.id];
+    return (!ui.vfBlock || b.block === ui.vfBlock) && vfDateOk(i.times) &&
+      (ui.vfFilter === 'all' || (ui.vfFilter === 'action' && (i.ready || i.started)) || (ui.vfFilter === 'ready' && i.ready) ||
+       (ui.vfFilter === 'notstarted' && i.notstarted) || (ui.vfFilter === 'reassigned' && i.re.length)); };
+  const shown = turn.filter(pass).sort((a, b) => (infos[b.id].ready - infos[a.id].ready) || vfNatural(a.id, b.id));
+  const dated = !!(ui.vfFrom || ui.vfTo), hint = $('#verify-hint');
+  hint.hidden = !dated;
+  if (dated) hint.textContent = 'Showing beds with an activity completed, assigned, started or scheduled in this range. Beds with no activity yet have no date, so they only appear under Any date. ' + shown.length + ' of ' + turn.length + ' beds match.';
+
+  const groups = {};
+  shown.forEach(b => { (groups[b.block || 'No block'] = groups[b.block || 'No block'] || []).push(b); });
+  const names = Object.keys(groups).sort(vfNatural);
+  const bodyHtml = names.map(name => {
+    const list = groups[name], act = list.filter(b => !infos[b.id].notstarted), idle = list.filter(b => infos[b.id].notstarted);
+    const defOpen = act.length > 0 || names.length === 1 || !!ui.vfBlock;
+    const open = name in ui.vfOpen ? ui.vfOpen[name] : defOpen;
+    const gReady = list.filter(b => infos[b.id].ready).length, gStarted = list.filter(b => infos[b.id].started).length;
+    const chips = (gReady ? `<span class="chip">${gReady} ready</span>` : '') + (gStarted ? `<span class="chip med">${gStarted} in progress</span>` : '') +
+      (idle.length ? `<span class="chip neutral">${idle.length} not started</span>` : '');
+    return `<div class="group"><button class="group-head vf-ghead" type="button" data-act="vf-toggle" data-block="${esc(name)}" aria-expanded="${open}">
+        <b><span class="vf-caret">${open ? '▾' : '▸'}</span>${esc(name)}</b><span class="vf-gchips">${chips}<span class="sub">${list.length} ${list.length === 1 ? 'bed' : 'beds'}</span></span></button>` +
+      (open ? ((act.length ? `<div class="list">${act.map(b => vfRowHtml(b, infos[b.id], infos[b.id].re)).join('')}</div>` : '') +
+        (idle.length ? `<div class="vf-subhead">Not started · ${idle.length}</div><div class="bedgrid">${idle.map(b => `<button class="bedpill" type="button" data-act="verify-open" data-bed="${esc(b.id)}">${esc(b.id)}</button>`).join('')}</div>` : '')) : '') + '</div>';
   }).join('');
+  const emptyMsg = !turn.length ? ['Nothing is waiting for verification', 'Beds appear here while they are in turnover or not yet verified.']
+    : (ui.vfFilter === 'action' && !dated && !ui.vfBlock) ? ['No beds need action right now', nNot + ' beds have not started their reset. Choose Not started to see them, or All beds.']
+    : ['Nothing matches', 'Try another filter, block or date range.'];
   const plantHtml = planting.length ? `<div class="bucket"><div class="bucket-head"><h3>Planting to verify</h3><span class="count">${planting.length}</span></div><div class="list">` +
     planting.map(b => `<div class="item stripe low"><div class="item-top"><span class="item-title">${esc(b.id)} · ${esc(b.crop || b.cohortId)}</span><span class="item-time">${esc(b.cohortId)}</span></div>
       <p class="sub">Assigned and reserved. Verify once the crop is in the ground.</p>
       <div class="verify-row"><button class="btn btn-primary btn-block" data-act="verify-plant" data-bed="${esc(b.id)}" type="button">Verify planting</button></div></div>`).join('') + '</div></div>' : '';
   box.innerHTML = plantHtml + `<div class="bucket"><div class="bucket-head"><h3>Bed turnover</h3><span class="count">${shown.length}</span></div>` +
-    (shown.length ? `<div class="list">${rows}</div>` : empty(turn.length ? 'Nothing matches' : 'Nothing is waiting for verification', turn.length ? 'Try another filter or block.' : 'Beds appear here while they are in turnover or not yet verified.')) + '</div>';
+    (shown.length ? bodyHtml : empty(emptyMsg[0], emptyMsg[1])) + '</div>';
 }
 
 function renderVerifyBed() {
@@ -1335,6 +1410,14 @@ document.addEventListener('click', e => {
     case 'scan-stop': stopScan(); break;
     case 'activity-type': ui.activityType = t.dataset.type; renderActivityLog(); break;
     case 'vf-filter': ui.vfFilter = t.dataset.f; renderVerify(); break;
+    case 'vf-toggle': { const k = t.dataset.block, cur = t.getAttribute('aria-expanded') === 'true'; ui.vfOpen[k] = !cur; renderVerify(); break; }
+    case 'vf-date': {
+      const d = t.dataset.d, now = new Date();
+      if (d === 'today') { ui.vfFrom = ui.vfTo = vfIso(now); }
+      else if (d === '7') { ui.vfFrom = vfIso(new Date(Date.now() - 6 * 86400000)); ui.vfTo = vfIso(now); }
+      else { ui.vfFrom = ui.vfTo = ''; }
+      renderVerify(); break;
+    }
     case 'verify-open': openVerifyBed(t.dataset.bed); break;
     case 'vf-back': ui.vfBed = null; ui.vfSkip = true; switchView('view-verify'); break;
     case 'verify-plant': vfPlantSheet(t.dataset.bed); break;
@@ -1353,6 +1436,7 @@ document.addEventListener('click', e => {
 $('#scan-input').addEventListener('keydown', e => { if (e.key === 'Enter') handleScan(e.target.value); });
 $('#activity-worker').addEventListener('change', renderActivityLog);
 $('#verify-block').addEventListener('change', e => { ui.vfBlock = e.target.value; renderVerify(); });
+['#verify-from', '#verify-to'].forEach(q => $(q).addEventListener('change', e => { (q === '#verify-from' ? (ui.vfFrom = e.target.value) : (ui.vfTo = e.target.value)); renderVerify(); }));
 ['#scout-bed', '#scout-domain', '#scout-status'].forEach(s => $(s).addEventListener('change', renderScouting));
 
 /* board auto-refresh and live elapsed timers */
