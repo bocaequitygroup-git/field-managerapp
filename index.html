@@ -66,6 +66,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
   background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,.55); font-weight: 700; font-size: 15px;
 }
 .btn-hd:active { background: rgba(255,255,255,.15); }
+.btn-hd[hidden] { display: none; }
 #demo-strip { background: #FFF3C4; color: #5b4300; font-size: 14px; padding: 6px 16px; text-align: center; border-bottom: 1px solid #E9D48A; }
 
 /* ---------- layout ---------- */
@@ -240,6 +241,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
   <div class="hd-id" id="hd-id" hidden>
     <div class="who"><b id="hd-name"></b><span id="hd-role"></span></div>
     <div class="hd-btns">
+      <button class="btn-hd" data-act="back" id="btn-board" type="button" hidden>Board</button>
       <button class="btn-hd" data-act="refresh" id="btn-refresh" type="button">Refresh</button>
       <button class="btn-hd" data-act="logout" id="btn-logout" type="button">Log out</button>
     </div>
@@ -367,7 +369,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
 
   <!-- 10. verify: one bed -->
   <section id="view-verify-bed" class="view" hidden aria-labelledby="h-vbed">
-    <div class="viewbar"><button class="btn btn-back" data-act="vf-back" type="button">Verify</button><h2 id="h-vbed" tabindex="-1">Activities</h2></div>
+    <div class="viewbar"><button class="btn btn-back" data-act="vf-back" type="button">Verify</button><button class="btn btn-back" data-act="back" type="button">Board</button><h2 id="h-vbed" tabindex="-1">Activities</h2></div>
     <div id="vbed-body"></div>
   </section>
 
@@ -569,8 +571,35 @@ async function apiCall(action, payload = {}, timeoutMs) {
 /* ==========================================================================
    AUTH
    ========================================================================== */
+/* Sign-in survives a page refresh. It is kept per TAB in sessionStorage (cleared when the tab or browser closes, never shared
+   between tabs, never in localStorage), the same way the worker app does it. The server still decides: an expired or revoked
+   token comes back UNAUTHENTICATED and apiCall() signs the manager out with the server's message. */
+const SESS_KEY = 'vpos_manager_session';
+function saveSession() {
+  try {
+    if (!state.managerId || !state.token) return;
+    sessionStorage.setItem(SESS_KEY, JSON.stringify({ managerId: state.managerId, managerName: state.managerName, role: state.role,
+      token: state.token, expiresAt: state.expiresAt || null, view: ui.view, vfBed: ui.vfBed || null }));
+  } catch (e) { /* storage blocked: the app still works, it just will not survive a refresh */ }
+}
+function dropSession() { try { sessionStorage.removeItem(SESS_KEY); localStorage.removeItem(SESS_KEY); } catch (e) { /* ignore */ } }
+function restoreSession() {
+  try {
+    const sv = JSON.parse(sessionStorage.getItem(SESS_KEY) || 'null');
+    if (!sv || !sv.token || !sv.managerId) return false;
+    if (sv.expiresAt && new Date(sv.expiresAt).getTime() <= Date.now()) { dropSession(); return false; }
+    Object.assign(state, { managerId: sv.managerId, managerName: sv.managerName || sv.managerId, role: sv.role || '', token: sv.token, expiresAt: sv.expiresAt || null });
+    const view = (sv.view && sv.view !== 'view-login' && LOADERS[sv.view]) ? sv.view : 'view-board';
+    ui.vfBed = view === 'view-verify-bed' ? (sv.vfBed || null) : null;
+    ui.vfSkip = false;
+    renderHeader();
+    switchView(ui.vfBed || view !== 'view-verify-bed' ? view : 'view-verify');
+    return true;
+  } catch (e) { return false; }
+}
 function clearState() {
-  Object.assign(state, { managerId: null, managerName: null, role: null, token: null, sessions: [], workers: [], history: [],
+  dropSession();
+  Object.assign(state, { managerId: null, managerName: null, role: null, token: null, expiresAt: null, sessions: [], workers: [], history: [],
     harvestCandidates: [], harvestableCohorts: [], activityLog: [], scoutFindings: [],
     queue: { generatedAt: null, counts: {}, mustDo: [], attention: [], routine: [] } });
   ui.loaded = {}; ui.activityType = 'all'; state.vf = null;
@@ -584,7 +613,7 @@ async function login(workerId, pin) {
   const id = g(res, 'workerId', 'userId', 'id') || workerId;
   const token = g(res, 'token', 'sessionToken');
   if (!token) throw apiError('The server signed you in but did not issue a session token. Ask an admin to update the backend.', 'NO_TOKEN');
-  state.token = String(token);                     // held in memory only (never written to storage)
+  state.token = String(token);                     // kept for this tab only (see saveSession); never localStorage
   if (!ALLOWED_ROLES.includes(role.toLowerCase())) {   // second line of defence; the backend already gates by app
     try { await apiCall(ACTIONS.logout, { workerId: id }); } catch (e) { /* already refused */ }
     clearState();
@@ -593,6 +622,8 @@ async function login(workerId, pin) {
   state.managerId = id;
   state.managerName = g(res, 'name', 'workerName', 'fullName') || id;
   state.role = titleCase(role);
+  state.expiresAt = g(res, 'expiresAt', 'expires') || null;
+  saveSession();
   renderHeader();
 }
 
@@ -628,7 +659,9 @@ function renderHeader() {
   $('#hd-name').textContent = state.managerName || '';
   $('#hd-role').textContent = state.role || '';
   if (!on) setConn('idle');
+  syncBoardBtn();
 }
+function syncBoardBtn() { const b = $('#btn-board'); if (b) b.hidden = !state.managerId || ui.view === 'view-board' || ui.view === 'view-login'; }
 
 /* ==========================================================================
    NAVIGATION
@@ -647,6 +680,7 @@ const LOADERS = {
 function switchView(viewId) {
   $$('.view').forEach(v => { v.hidden = v.id !== viewId; });
   ui.view = viewId;
+  syncBoardBtn(); saveSession();
   window.scrollTo(0, 0);
   const h = $('#' + viewId + ' h2[tabindex]') || $('#' + viewId + ' h2');
   if (h) h.focus({ preventScroll: true });
@@ -1590,7 +1624,7 @@ async function mockBackend(action, payload) { return JSON.parse(JSON.stringify(a
 $('#demo-strip').hidden = !IS_DEMO;
 $('#demo-hint').hidden = !IS_DEMO;
 renderHeader();
-switchView('view-login');
+if (!restoreSession()) switchView('view-login');
 </script>
 </body>
 </html>
