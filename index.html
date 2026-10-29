@@ -293,11 +293,17 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
     <div class="seg" id="activity-seg" role="group" aria-label="Entry type">
       <button type="button" data-act="activity-type" data-type="all" aria-pressed="true">All</button>
       <button type="button" data-act="activity-type" data-type="session" aria-pressed="false">Sessions</button>
+      <button type="button" data-act="activity-type" data-type="verified" aria-pressed="false">Verified</button>
       <button type="button" data-act="activity-type" data-type="state" aria-pressed="false">Cohort changes</button>
     </div>
-    <div class="filters" style="grid-template-columns:minmax(0,1fr)">
+    <div class="filters">
       <label class="field"><span>Worker</span><select class="input" id="activity-worker"><option value="">All workers</option></select></label>
+      <label class="field"><span>Activity</span><select class="input" id="activity-act"><option value="">All activities</option></select></label>
+      <label class="field"><span>Bed</span><select class="input" id="activity-bed"><option value="">All beds</option></select></label>
+      <label class="field"><span>Verified by</span><select class="input" id="activity-by"><option value="">Anyone</option></select></label>
+      <label class="field"><span>Period</span><select class="input" id="activity-period"><option value="">All time</option><option value="1">Today</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></label>
     </div>
+    <p class="meta" id="activity-count" style="margin:-4px 0 10px"></p>
     <div id="activity-list"></div>
   </section>
 
@@ -828,6 +834,11 @@ async function loadActivityLog() {
     const ids = Array.from(new Set(state.activityLog.map(a => String(g(a, 'workerId', 'worker') || '')).filter(Boolean)));
     sel.innerHTML = '<option value="">All workers</option>' + ids.map(id => `<option value="${esc(id)}">${esc(workerName(id))}</option>`).join('');
     sel.value = ids.includes(cur) ? cur : '';
+    const fill = (id, vals, label, first) => { const el = $(id), c = el.value; el.innerHTML = '<option value="">' + first + '</option>' + vals.map(v => `<option value="${esc(v)}">${esc(label ? label(v) : v)}</option>`).join(''); el.value = vals.includes(c) ? c : ''; };
+    const uniq = fn => Array.from(new Set(state.activityLog.map(fn).filter(Boolean))).sort(vfNatural);
+    fill('#activity-act', uniq(a => String(g(a, 'taskType', 'task') || '')), null, 'All activities');
+    fill('#activity-bed', uniq(a => String(g(a, 'bedId', 'bed') || '')), null, 'All beds');
+    fill('#activity-by', uniq(actVerBy), workerName, 'Anyone');
     renderActivityLog();
   } catch (err) { box.innerHTML = errBox(err.message, 'view-activity-log'); }
 }
@@ -837,16 +848,32 @@ function activityKind(a) {
   if (g(a, 'fromState', 'toState', 'newState')) return 'state';
   return 'session';
 }
+const actVerBy = a => String(g(a, 'verifiedBy') || '').trim();
+const actVerAt = a => g(a, 'verifiedDate', 'verifiedAt');
 function renderActivityLog() {
-  const box = $('#activity-list'), wk = $('#activity-worker').value;
+  const box = $('#activity-list'), wk = $('#activity-worker').value, act = $('#activity-act').value, bedF = $('#activity-bed').value, by = $('#activity-by').value, per = Number($('#activity-period').value) || 0;
   $$('#activity-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.type === ui.activityType)));
+  const cutoff = per ? (per === 1 ? new Date(new Date().setHours(0, 0, 0, 0)).getTime() : Date.now() - per * 86400000) : 0;
+  const verView = ui.activityType === 'verified';
+  const stamp = a => toDate(verView ? (actVerAt(a) || g(a, 'endTime', 'timestamp', 'time', 'startTime')) : g(a, 'endTime', 'timestamp', 'time', 'startTime'));
   const rows = state.activityLog
-    .filter(a => (ui.activityType === 'all' || activityKind(a) === ui.activityType) && (!wk || String(g(a, 'workerId', 'worker') || '') === wk))
-    .sort((a, b) => (toDate(g(b, 'endTime', 'timestamp', 'time', 'startTime')) || 0) - (toDate(g(a, 'endTime', 'timestamp', 'time', 'startTime')) || 0));
-  if (!rows.length) { box.innerHTML = empty('Nothing matches', 'Try another worker or entry type. Completed sessions and cohort state changes show up here.'); return; }
+    .filter(a => (ui.activityType === 'all' || (verView ? (activityKind(a) !== 'state' && !!actVerBy(a)) : activityKind(a) === ui.activityType))
+      && (!wk || String(g(a, 'workerId', 'worker') || '') === wk)
+      && (!act || String(g(a, 'taskType', 'task') || '') === act)
+      && (!bedF || String(g(a, 'bedId', 'bed') || '') === bedF)
+      && (!by || actVerBy(a) === by)
+      && (!cutoff || (stamp(a) || 0) >= cutoff))
+    .sort((a, b) => (stamp(b) || 0) - (stamp(a) || 0));
+  $('#activity-count').textContent = rows.length + (rows.length === 1 ? ' entry' : ' entries');
+  if (!rows.length) {
+    const none = ui.activityType === 'state' ? ['No cohort changes recorded', 'The server does not write cohort state changes to any log yet, so this list is empty by design. Completed sessions are under Sessions.']
+      : verView ? ['Nothing verified yet', 'Activities appear here once a manager verifies them on the Verify screen. Clear the filters if you expected more.']
+      : ['Nothing matches', 'Try other filters or another entry type. Completed sessions and cohort state changes show up here.'];
+    box.innerHTML = empty(none[0], none[1]); return;
+  }
   box.innerHTML = '<div class="list">' + rows.map(a => {
     const kind = activityKind(a);
-    const when = g(a, 'endTime', 'timestamp', 'time', 'startTime');
+    const when = verView ? (actVerAt(a) || g(a, 'endTime', 'timestamp', 'time', 'startTime')) : g(a, 'endTime', 'timestamp', 'time', 'startTime');
     const who = g(a, 'workerName') || workerName(g(a, 'workerId', 'worker')) || '';
     if (kind === 'state') {
       const from = g(a, 'fromState', 'previousState', 'from'), to = g(a, 'toState', 'newState', 'to');
@@ -855,18 +882,18 @@ function renderActivityLog() {
         <p>${from ? esc(from) + ' to ' : 'Now '}<b>${esc(to || 'unknown')}</b></p>
         <p class="sub">${['Bed ' + (g(a, 'bedId', 'bed') || '-'), who && 'by ' + who].filter(Boolean).map(esc).join(', ')}</p></div>`;
     }
-    const dur = g(a, 'durationMinutes', 'duration') !== undefined ? durationText(g(a, 'durationMinutes', 'duration')) : '';
+    const dm = g(a, 'durationMinutes', 'duration', 'elapsedMinutes');
+    const dur = dm !== undefined ? durationText(dm) : '';
     const range = [fmtTime(g(a, 'startTime')), fmtTime(g(a, 'endTime'))].filter(Boolean).join(' to ');
-    // FIX (bug 2): "description" is what the activity TYPE is (e.g. "Prepare the field
-    // or bed surface for planting..."), from ACTIVITY_REFERENCE.Description - now joined
-    // in server-side (see getActivityFeed() in ActivityEngine.gs). It's distinct from the
-    // session's own free-text notes, which are usually blank and shown separately below.
+    // "description" is what the activity TYPE is (ACTIVITY_REFERENCE.Description, joined in getActivityFeed()), distinct from the session's own notes.
     const desc = g(a, 'description');
+    const vb = actVerBy(a), vAt = actVerAt(a);
     return `<div class="item stripe low">
       <div class="item-top"><span class="item-title">${esc(g(a, 'taskType', 'task') || 'Session')} completed</span><span class="item-time">${esc(fmtDateTime(when))}</span></div>
-      <p>${esc(who)}${dur ? ', ' + esc(dur) : ''}</p>
+      <p>${who ? 'Worker <b>' + esc(who) + '</b>' : 'Worker not recorded'}${dur ? ', ' + esc(dur) : ''}</p>
       ${desc ? `<p class="sub">${esc(desc)}</p>` : ''}
       <p class="sub">${['Bed ' + (g(a, 'bedId', 'bed') || '-'), g(a, 'cohortId', 'cohort'), range].filter(Boolean).map(esc).join(', ')}</p>
+      ${vb ? `<div class="chips"><span class="chip">Verified</span></div><p class="sub">Verified by ${esc(workerName(vb))}${vAt ? ' · ' + esc(fmtDateTime(vAt)) : ''}</p>` : ''}
       ${g(a, 'notes', 'note') ? `<p>${esc(g(a, 'notes', 'note'))}</p>` : ''}</div>`;
   }).join('') + '</div>';
 }
@@ -942,7 +969,7 @@ function vfWorkHtml(s) {
   }
   return `<p class="sub">Completed by <b>${who}</b> · ${esc(fmtWhen(w.completedAt))}${w.sessions > 1 ? ' · ' + w.sessions + ' sessions' : ''}</p>
     <p class="sub">${hrs}${w.budgetRule ? ' <span style="opacity:.7">(' + esc(w.budgetRule) + ')</span>' : ''}</p>` +
-    (w.verified ? `<p class="sub">Verified by ${esc(w.verifiedByName || w.verifiedBy)} · ${esc(fmtWhen(w.verifiedAt))}</p>` : '');
+    (w.verified ? `<p class="sub">Verified by ${esc(w.verifiedByName || workerName(w.verifiedBy))} · ${esc(fmtWhen(w.verifiedAt))}</p>` : '');
 }
 
 /* ----- verify list: grouped by block, filtered by progress and by activity date -----
@@ -973,6 +1000,7 @@ function vfRowHtml(b, i, re) {
       <div class="chips">${i.ready ? '<span class="chip">Ready to verify</span>' : '<span class="chip high">Not ready to plant</span>'}
         ${w ? `<span class="chip med">Time gate${w.eligibleDate ? ' until ' + esc(fmtDate(w.eligibleDate)) : ''}</span>` : ''}
         ${re.length ? `<span class="chip med">Reassigned from ${esc(re[0])}</span>` : ''}${i.assigned ? `<span class="chip neutral">${i.assigned} assigned</span>` : ''}${i.pending ? `<span class="chip med">${i.pending} to verify</span>` : ''}${i.last ? `<span class="chip neutral">Last activity ${esc(fmtDate(i.last))}</span>` : ''}</div>
+      ${(() => { const n = Array.from(new Set(vfOpenSessions(b.id).map(x => x.worker).filter(Boolean))); return n.length ? `<p class="sub">Assigned to ${esc(n.join(', '))}</p>` : ''; })()}
       <p class="sub">${i.ready ? 'Every activity is complete or overridden. Check the bed, then verify it.' : i.left + ' required ' + (i.left === 1 ? 'activity' : 'activities') + ' still to clear before planting.'}</p></button>`;
 }
 function renderVerify() {
@@ -1226,7 +1254,7 @@ function renderScouting() {
 async function loadQueue() {
   const box = $('#queue-list'); box.innerHTML = skeleton(3);
   try {
-    const res = await apiCall(ACTIONS.dailyQueue);
+    const res = await apiCall(ACTIONS.dailyQueue); await ensureWorkers().catch(() => []);
     const q = (res && res.queue) ? res.queue : (res || {});
     state.queue = {
       generatedAt: g(q, 'generatedAt', 'generated') || null, counts: g(q, 'counts') || {},
@@ -1260,7 +1288,7 @@ function renderQueue() {
         ${gr.items.map(it => `<div class="item stripe ${b.cls}">
           <div class="item-top"><span class="item-title">${esc(g(it, 'title', 'task', 'description', 'reason', 'message') || 'Task')}</span><span class="item-time">${esc(fmtDateTime(g(it, 'dueTime', 'due', 'dueDate')))}</span></div>
           ${g(it, 'detail', 'details', 'reason') && g(it, 'title', 'task') ? `<p>${esc(g(it, 'detail', 'details', 'reason'))}</p>` : ''}
-          <p class="sub">${[g(it, 'bedId', 'bed') && 'Bed ' + g(it, 'bedId', 'bed'), g(it, 'taskType', 'type'), g(it, 'assignedTo', 'workerName')].filter(Boolean).map(esc).join(', ')}</p>
+          <p class="sub">${[g(it, 'bedId', 'bed') && 'Bed ' + g(it, 'bedId', 'bed'), g(it, 'taskType', 'type'), (v => v ? 'Assigned to ' + workerName(v) : '')(g(it, 'assignedTo', 'workerName'))].filter(Boolean).map(esc).join(', ')}</p>
         </div>`).join('')}</div>`).join('') : '<p class="sub">Nothing in this group.</p>'}
     </section>`;
   }).join('');
@@ -1468,7 +1496,7 @@ document.addEventListener('click', e => {
 });
 ['#login-id', '#login-pin'].forEach(s => $(s).addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); }));
 $('#scan-input').addEventListener('keydown', e => { if (e.key === 'Enter') handleScan(e.target.value); });
-$('#activity-worker').addEventListener('change', renderActivityLog);
+['#activity-worker', '#activity-act', '#activity-bed', '#activity-by', '#activity-period'].forEach(id => $(id).addEventListener('change', renderActivityLog));
 $('#verify-block').addEventListener('change', e => { ui.vfBlock = e.target.value; renderVerify(); });
 ['#verify-from', '#verify-to'].forEach(q => $(q).addEventListener('change', e => { (q === '#verify-from' ? (ui.vfFrom = e.target.value) : (ui.vfTo = e.target.value)); renderVerify(); }));
 ['#scout-bed', '#scout-domain', '#scout-status'].forEach(s => $(s).addEventListener('change', renderScouting));
