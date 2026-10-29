@@ -1243,7 +1243,9 @@ function syncVfBar() {
 }
 function openVerifyBed(id) { ui.vfBed = id; ui.vfSkip = true; ui.vfSteps = new Set(); ui.vfWorkers = new Set(); ui.vfVerify = new Set(); switchView('view-verify-bed'); renderVerifyBed(); }
 const VF_ERR = { POST_HARVEST_OUT_OF_SEQUENCE: 'not available yet (already done, an automatic wait, or its seasonal window is not open)', BED_NOT_ELIGIBLE_FOR_POST_HARVEST: 'this bed is not eligible for post-harvest work',
-  POST_HARVEST_NOT_APPLICABLE: 'not required for this crop', STAGE_NOT_ALLOWED: 'not allowed at this stage' };
+  POST_HARVEST_NOT_APPLICABLE: 'not required for this crop', STAGE_NOT_ALLOWED: 'not allowed at this stage',
+  BED_NOT_RELEASED: 'this bed has not been released: finish the reset and Verify Bed Ready first', BED_TURNOVER_INCOMPLETE: 'this bed still has unfinished reset work',
+  BED_NOT_PLANTABLE: 'planting is only allowed on an Available or Reserved bed' };
 async function vfAssign() {
   const bed = state.vf.beds.find(b => b.id === ui.vfBed); if (!bed || !ui.vfSteps.size || !ui.vfWorkers.size) return;
   const names = [...ui.vfSteps].filter(n => { const s = vfSteps(bed).find(x => x.name === n); return s && vfAssignable(bed, s); });
