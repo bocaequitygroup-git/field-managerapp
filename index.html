@@ -377,6 +377,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
       <div class="seg" id="verify-lstat" role="group" aria-label="Activity status">
         <button type="button" data-act="vf-lstat" data-s="all" aria-pressed="true">All</button>
         <button type="button" data-act="vf-lstat" data-s="pending" aria-pressed="false">Waiting for verification</button>
+        <button type="button" data-act="vf-lstat" data-s="done" aria-pressed="false">Completed</button>
         <button type="button" data-act="vf-lstat" data-s="verified" aria-pressed="false">Verified</button>
         <button type="button" data-act="vf-lstat" data-s="overridden" aria-pressed="false">Overridden</button>
       </div>
@@ -842,7 +843,8 @@ async function loadActivityLog() {
   const box = $('#activity-list'); box.innerHTML = skeleton(4);
   try {
     const [res] = await Promise.all([apiCall(ACTIONS.activityHistory), ensureWorkers().catch(() => [])]);
-    state.activityLog = listOf(res, 'activities', 'history', 'log', 'entries');
+    // Hand-off records (Outcome_Flags 'reassigned', 0 minutes) are not completed work; they belong to the Reassignments tab.
+    state.activityLog = listOf(res, 'activities', 'history', 'log', 'entries').filter(a => !/reassigned/i.test(String(g(a, 'outcomeFlags') || '')));
     const sel = $('#activity-worker'), cur = sel.value;
     const ids = Array.from(new Set(state.activityLog.map(a => String(g(a, 'workerId', 'worker') || '')).filter(Boolean)));
     sel.innerHTML = '<option value="">All workers</option>' + ids.map(id => `<option value="${esc(id)}">${esc(workerName(id))}</option>`).join('');
@@ -922,7 +924,7 @@ async function loadVerify(opts = {}) {
     const [day, board] = await Promise.all([apiCall(ACTIONS.todayView, {}, VF_TIMEOUT_MS), apiCall(ACTIONS.board).catch(() => null)]);
     const catalog = listOf(day, 'activityCatalog').map(a => ({
       id: g(a, 'id') || '', name: g(a, 'name') || '', domain: g(a, 'domain') || '', desc: g(a, 'description') || '', seq: Number(g(a, 'postHarvestSequence')) || 0 }));
-    const descOf = {}, idOf = {}; catalog.forEach(a => { descOf[a.name] = a.desc; idOf[a.name] = a.id; });
+    const descOf = {}, idOf = {}, seqOf = {}; catalog.forEach(a => { descOf[a.name] = a.desc; idOf[a.name] = a.id; seqOf[a.name] = a.seq; });
     const open = new Set(['ASSIGNED', 'ACTIVE', 'PAUSED', 'EXCEPTION']);
     const sessions = listOf(day, 'sessions').filter(s => open.has(String(g(s, 'status') || '').toUpperCase())).map(s => ({
       id: g(s, 'id') || '', bedId: String(g(s, 'bedId') || ''), activity: g(s, 'activity') || '', worker: g(s, 'workerName') || g(s, 'workerId') || '',
@@ -934,14 +936,61 @@ async function loadVerify(opts = {}) {
       const pv = b.postHarvest && Array.isArray(b.postHarvest.steps) ? b.postHarvest : null;
       // b.reset = the FINISHED reset of a bed the manager already released (BedStatusEngine.gs). Kept so verified work stays visible.
       const rs = !pv && b.reset && Array.isArray(b.reset.steps) ? b.reset : null;
-      return { id: String(g(b, 'id', 'bedId') || ''), block: g(b, 'blockId') || '', status: String(g(b, 'bedStatus') || '').toUpperCase(),
+      const bed = { id: String(g(b, 'id', 'bedId') || ''), block: g(b, 'blockId') || '', status: String(g(b, 'bedStatus') || '').toUpperCase(),
         cohortId: g(b, 'cohortId') || '', crop: g(b, 'cropName') || '', cohortStatus: String(g(b, 'cohortStatus') || '').toUpperCase(), pv, rs };
+      bed.hx = vfBuildHx(b, bed, seqOf);
+      return bed;
     }).filter(b => b.id);
     let workers = listOf(day, 'workers').map(w => ({ id: String(g(w, 'workerId') || ''), name: g(w, 'name') || g(w, 'workerId') || '' })).filter(w => w.id);
     if (!workers.length) { try { workers = (await ensureWorkers()).filter(w => !/manager|founder/i.test(w.role)).map(w => ({ id: w.id, name: w.name })); } catch (e) { /* assign stays disabled */ } }
     state.vf = { beds, workers, catalog, descOf, idOf, sessions, reassigned };
     renderVerify(); if (ui.vfBed) renderVerifyBed();
   } catch (err) { if (!opts.silent) box.innerHTML = errBox(err.message, 'view-verify'); else toast(err.message); }
+}
+/* ----- history read from each bed's own activity log -----
+   The turnover checklist (pv / rs) exists only while a bed is being reset or has just been released, so a planted or growing bed used to lose
+   every activity it had done. get-manager-today-view also sends beds[].activityLog (what ranch_aab's bed history reads): one row per finished
+   session with reviewStatus VERIFIED / CHECKED / COMPLETED. It is grouped here into one entry per activity, the same shape as a checklist step.
+   Several sessions can share an Activity_Log_ID, so nothing here is keyed by it. */
+const VF_OWN_GATE = ['directseeding', 'transplanting', 'replanting'];   // signed off by Verify planting, not by verify-activities
+function vfBuildHx(raw, bed, seqOf) {
+  const rows = listOf(raw, 'activityLog');
+  if (!rows.length) return [];
+  const view = bed.pv || bed.rs;
+  const covered = new Set(view ? view.steps.filter(s => s.work || s.overridden).map(s => s.name) : []);   // already shown as checklist steps
+  const by = {}, order = [];
+  rows.forEach(r => {
+    const name = String(g(r, 'taskType', 'activity', 'activityName') || '').trim();
+    if (!name || covered.has(name)) return;
+    if (!by[name]) { by[name] = []; order.push(name); }
+    by[name].push(r);
+  });
+  const rv = r => String(g(r, 'reviewStatus') || 'COMPLETED').toUpperCase();
+  return order.map(name => {
+    const rs_ = by[name], un = rs_.filter(r => rv(r) === 'COMPLETED');
+    const allVer = rs_.every(r => rv(r) === 'VERIFIED');
+    const ownGate = VF_OWN_GATE.includes(name.toLowerCase());
+    const needsSignOff = un.some(r => String(g(r, 'governance') || '').toUpperCase() === 'VERIFIED');
+    const status = !un.length ? 'verified' : needsSignOff ? 'pending' : 'done';
+    const people = {}; let hours = 0, lastEnd = 0, firstStart = 0, vAt = 0, vBy = '', cAt = 0, cBy = '';
+    rs_.forEach(r => {
+      const m = Number(g(r, 'minutes', 'durationMinutes')) || 0, wid = String(g(r, 'workerId') || ''), wn = g(r, 'workerName') || wid || 'Unknown worker';
+      people[wid || wn] = people[wid || wn] || { name: wn, hours: 0 }; people[wid || wn].hours += m / 60; hours += m / 60;
+      const e = toDate(g(r, 'endTime')), st = toDate(g(r, 'startTime')), v = toDate(g(r, 'verifiedDate')), c = toDate(g(r, 'checkedDate'));
+      if (e && e.getTime() > lastEnd) lastEnd = e.getTime();
+      if (st && (!firstStart || st.getTime() < firstStart)) firstStart = st.getTime();
+      if (v && v.getTime() > vAt) { vAt = v.getTime(); vBy = g(r, 'verifiedBy') || ''; }
+      if (c && c.getTime() > cAt) { cAt = c.getTime(); cBy = g(r, 'checkedBy') || ''; }
+    });
+    const times = [lastEnd, vAt, cAt].filter(Boolean);
+    return { name, status, ownGate, actionable: status === 'pending' && !ownGate && (seqOf[name] || 0) > 0,
+      label: !un.length && !allVer ? 'Checked' : 'Verified',
+      at: new Date(vAt || cAt || lastEnd || 0), times,
+      step: { name, work: { noBudget: true, completedBy: Object.keys(people).map(k => ({ name: people[k].name, hours: people[k].hours })),
+        completedAt: lastEnd ? new Date(lastEnd).toISOString() : '', sessions: rs_.length, actualHours: hours,
+        verified: allVer, verifiedByName: allVer ? vBy : '', verifiedAt: allVer && vAt ? new Date(vAt).toISOString() : '',
+        checkedByName: !allVer && !un.length ? cBy : '', checkedAt: !allVer && !un.length && cAt ? new Date(cAt).toISOString() : '' } } };
+  });
 }
 /* One label everywhere an activity is listed: "ACT_037: Pull Plastic & Drip" + its first-sentence description. */
 const vfShort = (t, n = 110) => { t = String(t || '').replace(/\s+/g, ' ').trim(); const m = t.match(/^.*?[.;](\s|$)/); const x = m ? m[0].trim() : t; return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
@@ -952,6 +1001,7 @@ const vfView = bed => bed.pv || bed.rs || null;   // live turnover, else the fin
 function vfSteps(bed) {
   const view = vfView(bed);
   if (view) return view.steps.map(s => ({ name: s.name, domain: s.domain || 'Post-harvest', gate: s.gate || '', status: s.status, overridden: !!s.overridden, work: s.work || null, needsVerification: !!s.needsVerification, verified: !!s.verified }));
+  if (!vfInTurnover(bed)) return [];   // planted / growing / available: no reset checklist, its history comes from the activity log (bed.hx)
   return state.vf.catalog.filter(a => a.seq > 0).sort((a, b) => a.seq - b.seq).map(a => ({ name: a.name, domain: a.domain || 'Post-harvest', gate: '', status: 'PENDING', overridden: false }));
 }
 const vfKey = bed => (bed.pv && !bed.pv.bedLevel && bed.cohortId) ? bed.cohortId : 'BED:' + bed.id;
@@ -968,7 +1018,10 @@ function vfInfo(bed) {
   const ready = !!bed.pv && bed.pv.readyToVerify === true && left === 0;
   const assignedNames = new Set(vfOpenSessions(bed.id).map(x => x.activity));
   const pendingSteps = steps.filter(s => s.needsVerification && s.work);
-  return { steps, done, left, ready, released: !bed.pv && !!bed.rs, pendingSteps, pending: pendingSteps.length, assigned: steps.filter(s => s.status !== 'COMPLETE' && assignedNames.has(s.name)).length };
+  const hx = bed.hx || [], hxPending = hx.filter(e => e.status === 'pending');
+  // pending = checklist steps (signed off with the bed release); pendingAll also counts activities read from the bed's activity log.
+  return { steps, done, left, ready, released: !bed.pv && !!bed.rs, pendingSteps, pending: pendingSteps.length, hx, hxPending, pendingAll: pendingSteps.length + hxPending.length,
+    histOnly: !vfView(bed) && !vfInTurnover(bed), assigned: steps.filter(s => s.status !== 'COMPLETE' && assignedNames.has(s.name)).length };
 }
 const vfInTurnover = b => b.status === 'POST-HARVEST ACTIVITIES' || b.status === 'UNVERIFIED' || !!b.pv;
 
@@ -981,7 +1034,9 @@ function vfWorkHtml(s) {
   const multi = w.completedBy.length > 1;
   const who = w.completedBy.map(x => esc(x.name) + (multi ? ' (' + fmtHM(x.hours) + ')' : '')).join(', ');
   let hrs;
-  if (w.budgetHours != null) {
+  if (w.noBudget) {
+    hrs = 'Time taken <b>' + fmtHM(w.actualHours) + '</b>';
+  } else if (w.budgetHours != null) {
     const d = Number(w.varianceHours || 0), over = d > 0.004, under = d < -0.004;
     hrs = 'Time taken <b>' + fmtHM(w.actualHours) + '</b> vs budget <b>' + fmtHM(w.budgetHours) + '</b> · ' +
       (over ? '<b>' + fmtHM(d) + ' over budget</b>' : under ? fmtHM(-d) + ' under budget' : 'on budget');
@@ -990,7 +1045,8 @@ function vfWorkHtml(s) {
   }
   return `<p class="sub">Completed by <b>${who}</b> · ${esc(fmtWhen(w.completedAt))}${w.sessions > 1 ? ' · ' + w.sessions + ' sessions' : ''}</p>
     <p class="sub">${hrs}${w.budgetRule ? ' <span style="opacity:.7">(' + esc(w.budgetRule) + ')</span>' : ''}</p>` +
-    (w.verified ? `<p class="sub">Verified by ${esc(w.verifiedByName || workerName(w.verifiedBy))} · ${esc(fmtWhen(w.verifiedAt))}</p>` : '');
+    (w.verified ? `<p class="sub">Verified by ${esc(w.verifiedByName || workerName(w.verifiedBy))} · ${esc(fmtWhen(w.verifiedAt))}</p>` : '') +
+    (w.checkedAt ? `<p class="sub">Checked by ${esc(w.checkedByName || 'a manager')} · ${esc(fmtWhen(w.checkedAt))}</p>` : '');
 }
 
 /* ----- verify list: grouped by block, filtered by progress and by activity date -----
@@ -1006,6 +1062,7 @@ function vfActivityTimes(bed) {
   const out = [], push = v => { const d = vfDay(v); if (d) out.push(d.getTime()); };
   const view = vfView(bed);
   (view ? view.steps : []).forEach(st => { if (st.work) { push(st.work.completedAt); push(st.work.verifiedAt); } });
+  (bed.hx || []).forEach(h => h.times.forEach(t => out.push(t)));
   vfOpenSessions(bed.id).forEach(x => [x.assignedTime, x.startTime, x.scheduledDate].forEach(push));
   return out;
 }
@@ -1018,7 +1075,7 @@ function vfDateOk(times) {
 /* Latest sign-off on a bed's steps: {at, by} (a released bed's "Verified" line). */
 function vfLastVerified(bed) {
   let at = 0, by = '';
-  vfSteps(bed).forEach(s => { if (s.work && s.work.verified) { const t = toDate(s.work.verifiedAt); if (t && t.getTime() > at) { at = t.getTime(); by = s.work.verifiedByName || workerName(s.work.verifiedBy) || ''; } } });
+  vfSteps(bed).concat((bed.hx || []).map(h => h.step)).forEach(s => { if (s.work && s.work.verified) { const t = toDate(s.work.verifiedAt); if (t && t.getTime() > at) { at = t.getTime(); by = s.work.verifiedByName || workerName(s.work.verifiedBy) || ''; } } });
   return { at, by };
 }
 const VF_ROW_STYLE = 'width:100%;text-align:left;background:var(--paper);border:0;border-bottom:1px solid var(--line);cursor:pointer';
@@ -1026,16 +1083,16 @@ function vfRowHtml(b, i, re) {
   if (i.kind === 'verified') {
     const lv = i.lastVerified;
     return `<button class="item stripe low" style="${VF_ROW_STYLE}" data-act="verify-open" data-bed="${esc(b.id)}" type="button">
-      <div class="item-top"><span class="item-title">${esc(b.id)}${b.block ? ' · ' + esc(b.block) : ''}</span><span class="item-time">${i.done} of ${i.steps.length} complete</span></div>
-      <div class="chips">${i.pending ? '<span class="chip neutral">Bed released</span>' : '<span class="chip">Verified, bed released</span>'}${i.pending ? `<span class="chip med">${i.pending} activit${i.pending === 1 ? 'y' : 'ies'} still to verify</span>` : ''}${lv.at ? `<span class="chip neutral">Last verified ${esc(fmtDate(lv.at))}</span>` : ''}</div>
-      <p class="sub">${lv.at ? 'Last sign-off by ' + esc(lv.by || 'a manager') + ' · ' + esc(fmtWhen(lv.at)) : 'Reset finished.'}${i.pending ? ' Open the bed to sign off the remaining activities.' : ''}</p></button>`;
+      <div class="item-top"><span class="item-title">${esc(b.id)}${b.block ? ' · ' + esc(b.block) : ''}</span><span class="item-time">${i.histOnly ? i.hx.length + (i.hx.length === 1 ? ' activity' : ' activities') : i.done + ' of ' + i.steps.length + ' complete'}</span></div>
+      <div class="chips">${i.histOnly ? `<span class="chip neutral">${esc(titleCase(b.status) || 'In use')}${b.cohortId ? ' · ' + esc(b.cohortId) : ''}</span>` : ''}${i.pendingAll ? (i.histOnly ? '' : '<span class="chip neutral">Bed released</span>') : (i.histOnly ? '<span class="chip">All activities verified</span>' : '<span class="chip">Verified, bed released</span>')}${i.pendingAll ? `<span class="chip med">${i.pendingAll} activit${i.pendingAll === 1 ? 'y' : 'ies'} still to verify</span>` : ''}${lv.at ? `<span class="chip neutral">Last verified ${esc(fmtDate(lv.at))}</span>` : ''}</div>
+      <p class="sub">${lv.at ? 'Last sign-off by ' + esc(lv.by || 'a manager') + ' · ' + esc(fmtWhen(lv.at)) : (i.histOnly ? 'Nothing signed off yet.' : 'Reset finished.')}${i.pendingAll ? ' Open the bed to see the remaining activities.' : ''}</p></button>`;
   }
   const w = b.pv && b.pv.waiting;
   return `<button class="item stripe ${i.ready ? 'low' : 'high'}" style="${VF_ROW_STYLE}" data-act="verify-open" data-bed="${esc(b.id)}" type="button">
       <div class="item-top"><span class="item-title">${esc(b.id)}${b.block ? ' · ' + esc(b.block) : ''}</span><span class="item-time">${i.done} of ${i.steps.length} complete</span></div>
       <div class="chips">${i.ready ? '<span class="chip">Ready to verify</span>' : '<span class="chip med">In progress</span>'}
         ${w ? `<span class="chip med">Time gate${w.eligibleDate ? ' until ' + esc(fmtDate(w.eligibleDate)) : ''}</span>` : ''}
-        ${re.length ? `<span class="chip med">Reassigned from ${esc(re[0])}</span>` : ''}${i.assigned ? `<span class="chip neutral">${i.assigned} assigned</span>` : ''}${i.pending ? `<span class="chip med">${i.pending} to verify</span>` : ''}${i.last ? `<span class="chip neutral">Last activity ${esc(fmtDate(i.last))}</span>` : ''}</div>
+        ${re.length ? `<span class="chip med">Reassigned from ${esc(re[0])}</span>` : ''}${i.assigned ? `<span class="chip neutral">${i.assigned} assigned</span>` : ''}${i.pendingAll ? `<span class="chip med">${i.pendingAll} to verify</span>` : ''}${i.last ? `<span class="chip neutral">Last activity ${esc(fmtDate(i.last))}</span>` : ''}</div>
       ${(() => { const n = Array.from(new Set(vfOpenSessions(b.id).map(x => x.worker).filter(Boolean))); return n.length ? `<p class="sub">Assigned to ${esc(n.join(', '))}</p>` : ''; })()}
       <p class="sub">${i.ready ? 'Every activity is complete or overridden. Check the bed, then verify it.' : i.left + ' required ' + (i.left === 1 ? 'activity' : 'activities') + ' still to clear before planting.'}</p></button>`;
 }
@@ -1044,8 +1101,9 @@ function vfRowHtml(b, i, re) {
 function vfStepEntries() {
   const out = [];
   state.vf.beds.forEach(b => {
-    const view = vfView(b); if (!view) return;
-    const released = !b.pv;
+    const view = vfView(b), released = !b.pv;
+    (b.hx || []).forEach(h => out.push({ bed: b, name: h.name, status: h.status, step: h.step, released, hist: true, actionable: h.actionable, ownGate: h.ownGate, label: h.label, at: h.at, times: h.times }));
+    if (!view) return;
     vfSteps(b).forEach(s => {
       if (s.work) {
         const c = toDate(s.work.completedAt), vd = toDate(s.work.verifiedAt);
@@ -1065,9 +1123,9 @@ function renderVerifyLog(box) {
   asel.innerHTML = '<option value="">All activities</option>' + acts.map(x => `<option>${esc(x)}</option>`).join('');
   asel.value = acts.includes(ui.vfAct) ? ui.vfAct : ''; ui.vfAct = asel.value;
   const base = all.filter(e => (!ui.vfBlock || e.bed.block === ui.vfBlock) && (!ui.vfAct || e.name === ui.vfAct) && vfDateOk(e.times));
-  const cnt = { all: base.length, pending: 0, verified: 0, overridden: 0 };
+  const cnt = { all: base.length, pending: 0, done: 0, verified: 0, overridden: 0 };
   base.forEach(e => { cnt[e.status]++; });
-  const lab = { all: 'All', pending: 'Waiting for sign-off', verified: 'Verified', overridden: 'Overridden' };
+  const lab = { all: 'All', pending: 'Waiting for sign-off', done: 'Completed', verified: 'Verified', overridden: 'Overridden' };
   $$('#verify-lstat button').forEach(b => { const k = b.dataset.s; b.textContent = lab[k] + ' · ' + cnt[k]; b.setAttribute('aria-pressed', String(k === ui.vfLogStatus)); });
   const rows = base.filter(e => ui.vfLogStatus === 'all' || e.status === ui.vfLogStatus)
     .sort((a, b) => (b.at ? b.at.getTime() : 0) - (a.at ? a.at.getTime() : 0));
@@ -1076,10 +1134,10 @@ function renderVerifyLog(box) {
   if (!rows.length) { box.innerHTML = empty('No activities match', all.length ? 'Try another status, activity, block or date range.' : 'Completed post-harvest activities show here, with who did them and whether you verified them.'); return; }
   const CAP = 300;
   box.innerHTML = '<div class="bucket"><div class="bucket-head"><h3>Activity log</h3><span class="count">' + rows.length + '</span></div><div class="list">' + rows.slice(0, CAP).map(e => {
-    const chip = e.status === 'verified' ? '<span class="chip">Verified</span>' : e.status === 'pending' ? '<span class="chip med">Waiting for verification</span>' : '<span class="chip neutral">Overridden</span>';
+    const chip = e.status === 'verified' ? `<span class="chip">${esc(e.label || 'Verified')}</span>` : e.status === 'pending' ? '<span class="chip med">Waiting for verification</span>' : e.status === 'done' ? '<span class="chip neutral">Completed</span>' : '<span class="chip neutral">Overridden</span>';
     const body = e.status === 'overridden'
       ? `<p class="sub">Skipped by ${esc(workerName(e.override.by) || e.override.by || 'a manager')}${e.override.date ? ' · ' + esc(fmtWhen(e.override.date)) : ''}${e.override.reason ? ': ' + esc(e.override.reason) : ''}</p>`
-      : vfWorkHtml(e.step);
+      : vfWorkHtml(e.step) + vfPendNote(e);
     return `<button class="item stripe ${e.status === 'verified' ? 'low' : e.status === 'pending' ? 'med' : 'neutral'}" style="${VF_ROW_STYLE}" data-act="verify-open" data-bed="${esc(e.bed.id)}" type="button">
       <div class="item-top"><span class="item-title">${esc(vfActLabel(e.name))}</span><span class="item-time">${esc(e.bed.id)}${e.bed.block ? ' · ' + esc(e.bed.block) : ''}</span></div>
       <div class="chips">${chip}${e.released ? '<span class="chip neutral">Bed released</span>' : ''}</div><p class="sub">${esc(vfActDesc(e.name))}</p>${body}</button>`;
@@ -1092,19 +1150,25 @@ const VF_TAB_HELP = {
   waiting: 'Beds where reset work has started but is not finished. Nothing to verify yet. Counts beds.',
   notstarted: 'Beds in turnover where no reset work has started. Counts beds.',
   reassigned: 'Beds where a task was handed to a different worker. Counts beds.',
-  verified: 'Beds you have already released, with every activity signed off. Counts beds.',
+  verified: 'Beds past their reset: released and waiting, planted or growing. Open one to see every activity and its sign-off. Counts beds.',
   log: 'Every completed or skipped activity and who did it. Counts activities, so totals are higher than the bed tabs.',
   all: 'Every bed in turnover, whatever its progress. Counts beds.'
 };
 const vfPickKey = e => e.bed.id + '||' + e.name;
+/* Why a waiting entry has no tick box: this app can only sign off reset steps; everything else has its own gate. */
+function vfPendNote(e) {
+  if (e.status !== 'pending' || e.actionable !== false) return '';
+  return e.ownGate ? '<p class="sub">Signed off by Verify planting. The planting is already verified, so this log entry still needs its stamp.</p>'
+    : '<p class="sub">A custom activity: sign it off in the Review Board in ranch_aab.</p>';
+}
 function vfPendHtml(list) {
   if (!list.length) return '';
   const rows = list.slice().sort((a, b) => vfNatural(a.bed.id, b.bed.id) || vfNatural(a.name, b.name)).map(e => {
     const k = vfPickKey(e);
-    return `<div class="item stripe med"><div class="vrow"><input type="checkbox" data-act="vf-pick" data-key="${esc(k)}" ${ui.vfPick.has(k) ? 'checked' : ''} aria-label="Select ${esc(vfActLabel(e.name))} on bed ${esc(e.bed.id)}">
+    return `<div class="item stripe med"><div class="vrow">${e.actionable === false ? '<span style="width:28px;flex:none"></span>' : `<input type="checkbox" data-act="vf-pick" data-key="${esc(k)}" ${ui.vfPick.has(k) ? 'checked' : ''} aria-label="Select ${esc(vfActLabel(e.name))} on bed ${esc(e.bed.id)}">`}
       <div class="vbody"><div class="item-top"><span class="item-title">${esc(vfActLabel(e.name))}</span><span class="item-time">Bed ${esc(e.bed.id)}${e.bed.block ? ' \u00b7 ' + esc(e.bed.block) : ''}</span></div>
       <div class="chips"><span class="chip med">Waiting for your sign-off</span></div>
-      <p class="sub">${esc(vfActDesc(e.name))}</p>${vfWorkHtml(e.step)}</div></div></div>`;
+      <p class="sub">${esc(vfActDesc(e.name))}</p>${vfWorkHtml(e.step)}${vfPendNote(e)}</div></div></div>`;
   }).join('');
   return `<div class="bucket"><div class="bucket-head"><h3>Activities to verify</h3><span class="count">${list.length}</span></div>
     <div class="group" style="padding:10px 16px"><div class="vbar" style="margin-bottom:6px"><button class="btn" type="button" data-act="vf-pall">Select all</button><button class="btn" type="button" data-act="vf-pnone">Clear</button>
@@ -1113,22 +1177,28 @@ function vfPendHtml(list) {
 }
 function syncPickBar() {
   const b = $('#vf-pgo'); if (!b) return;
-  const live = new Set(vfStepEntries().filter(e => e.status === 'pending').map(vfPickKey));
+  const live = new Set(vfStepEntries().filter(e => e.status === 'pending' && e.actionable !== false).map(vfPickKey));
   [...ui.vfPick].forEach(k => { if (!live.has(k)) ui.vfPick.delete(k); });
   b.disabled = !ui.vfPick.size; b.textContent = ui.vfPick.size ? `Verify selected (${ui.vfPick.size})` : 'Verify selected';
 }
 function vfPickAll(on) { $$('[data-act="vf-pick"]').forEach(c => { c.checked = on; on ? ui.vfPick.add(c.dataset.key) : ui.vfPick.delete(c.dataset.key); }); syncPickBar(); }
 function vfPickSheet() {
-  const picks = vfStepEntries().filter(e => e.status === 'pending' && ui.vfPick.has(vfPickKey(e)));
+  const picks = vfStepEntries().filter(e => e.status === 'pending' && e.actionable !== false && ui.vfPick.has(vfPickKey(e)));
   if (!picks.length) return;
-  const byBed = {}; picks.forEach(e => { (byBed[e.bed.id] = byBed[e.bed.id] || { bed: e.bed, names: [] }).names.push(e.name); });
+  const byBed = {}; picks.forEach(e => { const gp = (byBed[e.bed.id] = byBed[e.bed.id] || { bed: e.bed, names: [], steps: [], hist: [] }); gp.names.push(e.name); (e.hist ? gp.hist : gp.steps).push(e.name); });
   openSheet({
     title: 'Verify ' + picks.length + (picks.length === 1 ? ' activity' : ' activities'),
     body: sumRows(Object.values(byBed).map(g => ['Bed ' + g.bed.id, g.names.map(vfActLabel).join(', ')])) +
       '<p class="hint">Confirms the work was done properly. It is logged with your name and the time. It does not release any bed.</p>',
     actions: [{ label: 'Verify', primary: true, done: picks.length === 1 ? 'Activity verified.' : picks.length + ' activities verified.', run: async () => {
       try {
-        for (const g of Object.values(byBed)) await apiCall(ACTIONS.verifyActivities, { scope: vfKey(g.bed), bedId: g.bed.id, cohortId: vfCohortTurnover(g.bed) ? g.bed.cohortId : '', activities: g.names }, VF_TIMEOUT_MS);
+        for (const gp of Object.values(byBed)) {
+          if (gp.steps.length) await apiCall(ACTIONS.verifyActivities, { scope: vfKey(gp.bed), bedId: gp.bed.id, cohortId: vfCohortTurnover(gp.bed) ? gp.bed.cohortId : '', activities: gp.steps }, VF_TIMEOUT_MS);
+          if (gp.hist.length) {
+            try { await apiCall(ACTIONS.verifyActivities, { scope: 'BED:' + gp.bed.id, bedId: gp.bed.id, cohortId: '', activities: gp.hist }, VF_TIMEOUT_MS); }
+            catch (err) { throw apiError('Could not sign off ' + gp.hist.join(', ') + ' on bed ' + gp.bed.id + ': ' + err.message + ' The server signs off a reset step only while its reset is on record for the bed.', 'VERIFY'); }
+          }
+        }
       } finally { ui.vfPick = new Set(); await loadVerify({ silent: true }); }
     } }]
   });
@@ -1136,13 +1206,13 @@ function vfPickSheet() {
 function renderVerify() {
   const v = state.vf, box = $('#verify-list'); if (!v) return;
   const turn = v.beds.filter(vfInTurnover), infos = {};
-  // Released beds whose reset was actually worked (or overridden): these are the "Verified" beds.
-  const rel = v.beds.filter(b => !vfInTurnover(b) && b.rs && b.rs.steps.some(s => s.work || s.overridden));
+  // Released beds: past their reset, whether released and waiting (reset checklist on record) or already planted / growing (activity log only).
+  const rel = v.beds.filter(b => !vfInTurnover(b) && ((b.rs && b.rs.steps.some(s => s.work || s.overridden)) || (b.hx && b.hx.length)));
   turn.forEach(b => {
     const i = vfInfo(b), re = v.reassigned[b.id] || [], times = vfActivityTimes(b);
     i.re = re; i.times = times; i.last = times.length ? Math.max.apply(null, times) : 0;
     // Waiting = work has begun but the bed is not ready yet. An open session counts even when its activity is not one of the listed steps.
-    i.waiting = !i.ready && (i.done > 0 || i.assigned > 0 || i.pending > 0 || re.length > 0 || vfOpenSessions(b.id).length > 0);
+    i.waiting = !i.ready && (i.done > 0 || i.assigned > 0 || i.pendingAll > 0 || re.length > 0 || vfOpenSessions(b.id).length > 0);
     i.notstarted = !i.ready && !i.waiting;
     infos[b.id] = i;
   });
@@ -1150,14 +1220,14 @@ function renderVerify() {
     const i = vfInfo(b); i.kind = 'verified'; i.re = []; i.times = vfActivityTimes(b); i.last = i.times.length ? Math.max.apply(null, i.times) : 0;
     i.lastVerified = vfLastVerified(b); i.waiting = false; i.notstarted = false; infos[b.id] = i;
   });
-  // A released bed is only "Verified" when every completed activity on it is signed off. Otherwise it still needs the manager.
-  const relPending = rel.filter(b => infos[b.id].pending > 0), relDone = rel.filter(b => !infos[b.id].pending);
+  // Released beds that still hold unsigned work are flagged on their row and counted under To verify.
+  const relPending = rel.filter(b => infos[b.id].pendingAll > 0);
   const nReady = turn.filter(b => infos[b.id].ready).length, nRe = turn.filter(b => infos[b.id].re.length).length;
   const nWait = turn.filter(b => infos[b.id].waiting).length, nNot = turn.filter(b => infos[b.id].notstarted).length;
   const planting = v.beds.filter(b => b.cohortStatus === 'PRE_PLANTING' && b.cohortId);
   const logCount = vfStepEntries().length;
   const pendAll = vfStepEntries().filter(e => e.status === 'pending');
-  const counts = { action: pendAll.length + planting.length + nReady, ready: nReady, waiting: nWait, verified: relDone.length, log: logCount, notstarted: nNot, reassigned: nRe, all: turn.length };
+  const counts = { action: pendAll.length + planting.length + nReady, ready: nReady, waiting: nWait, verified: rel.length, log: logCount, notstarted: nNot, reassigned: nRe, all: turn.length };
   const labels = { action: 'To verify', ready: 'Beds ready to release', waiting: 'Reset in progress', verified: 'Released beds', log: 'Activity history', notstarted: 'Reset not started', reassigned: 'Reassigned', all: 'All beds' };
   $('#verify-units').textContent = VF_TAB_HELP[ui.vfFilter] || '';
   $$('#verify-seg button').forEach(b => { const f = b.dataset.f; b.textContent = labels[f] + ' · ' + counts[f]; b.setAttribute('aria-pressed', String(f === ui.vfFilter)); });
@@ -1193,9 +1263,9 @@ function renderVerify() {
 
   const pass = b => { const i = infos[b.id];
     return (!ui.vfBlock || b.block === ui.vfBlock) && vfDateOk(i.times) &&
-      (isVer || ui.vfFilter === 'all' || (ui.vfFilter === 'action' && (i.ready || i.waiting || (i.kind === 'verified' && i.pending > 0))) || (ui.vfFilter === 'ready' && i.ready) ||
+      (isVer || ui.vfFilter === 'all' || (ui.vfFilter === 'action' && (i.ready || i.waiting || (i.kind === 'verified' && i.pendingAll > 0))) || (ui.vfFilter === 'ready' && i.ready) ||
        (ui.vfFilter === 'waiting' && i.waiting) || (ui.vfFilter === 'notstarted' && i.notstarted) || (ui.vfFilter === 'reassigned' && i.re.length)); };
-  const pool = isVer ? relDone : ui.vfFilter === 'action' ? turn.concat(relPending) : turn;
+  const pool = isVer ? rel : ui.vfFilter === 'action' ? turn.concat(relPending) : turn;
   const shown = pool.filter(pass).sort(isVer
     ? (a, b) => (infos[b.id].lastVerified.at - infos[a.id].lastVerified.at) || vfNatural(a.id, b.id)
     : (a, b) => (infos[b.id].ready - infos[a.id].ready) || vfNatural(a.id, b.id));
@@ -1210,7 +1280,7 @@ function renderVerify() {
     const defOpen = act.length > 0 || names.length === 1 || !!ui.vfBlock;
     const open = name in ui.vfOpen ? ui.vfOpen[name] : defOpen;
     const gReady = list.filter(b => infos[b.id].ready).length, gWait = list.filter(b => infos[b.id].waiting).length, gVer = isVer ? list.length : 0;
-    const chips = (gVer ? `<span class="chip">${gVer} verified</span>` : '') + (gReady ? `<span class="chip">${gReady} ready</span>` : '') + (gWait ? `<span class="chip med">${gWait} in progress</span>` : '') +
+    const chips = (gVer ? `<span class="chip">${gVer} released</span>` : '') + (gReady ? `<span class="chip">${gReady} ready</span>` : '') + (gWait ? `<span class="chip med">${gWait} in progress</span>` : '') +
       (idle.length ? `<span class="chip neutral">${idle.length} not started</span>` : '');
     return `<div class="group"><button class="group-head vf-ghead" type="button" data-act="vf-toggle" data-block="${esc(name)}" aria-expanded="${open}">
         <b><span class="vf-caret">${open ? '▾' : '▸'}</span>${esc(name)}</b><span class="vf-gchips">${chips}<span class="sub">${list.length} ${list.length === 1 ? 'bed' : 'beds'}</span></span></button>` +
@@ -1218,12 +1288,12 @@ function renderVerify() {
         (idle.length ? `<div class="vf-subhead">Not started · ${idle.length}</div><div class="bedgrid">${idle.map(b => `<button class="bedpill" type="button" data-act="verify-open" data-bed="${esc(b.id)}">${esc(b.id)}</button>`).join('')}</div>` : '')) : '') + '</div>';
   }).join('');
   const emptyMsg = !turn.length && !isVer ? ['Nothing is waiting for verification', 'Beds appear here while they are in turnover or not yet verified.']
-    : isVer ? ['No verified beds match', rel.length ? 'Try another block or date range, or choose Any date.' : 'Beds show here after you verify them ready. Their activities stay in the Activity log.']
+    : isVer ? ['No released beds match', rel.length ? 'Try another block or date range, or choose Any date.' : 'Beds show here once they are released, planted or growing. Their activities stay in the Activity history.']
     : ui.vfFilter === 'waiting' ? ['No beds are in progress', 'A bed is in progress once work has started on it but it is not ready to verify yet.']
     : ui.vfFilter === 'ready' ? ['No beds are ready to verify', 'A bed is ready once every required activity is complete or overridden.']
     : (ui.vfFilter === 'action' && !dated && !ui.vfBlock) ? ['No beds need action right now', nNot + ' beds have not started their reset. Choose Not started to see them, or All beds.']
     : ['Nothing matches', 'Try another filter, block or date range.'];
-  box.innerHTML = plantHtml + `<div class="bucket"><div class="bucket-head"><h3>${isVer ? 'Verified beds' : 'Bed turnover'}</h3><span class="count">${shown.length}</span></div>` +
+  box.innerHTML = plantHtml + `<div class="bucket"><div class="bucket-head"><h3>${isVer ? 'Released beds' : 'Bed turnover'}</h3><span class="count">${shown.length}</span></div>` +
     (shown.length ? bodyHtml : empty(emptyMsg[0], emptyMsg[1])) + '</div>';
 }
 
@@ -1231,6 +1301,18 @@ function renderVerifyBed() {
   const v = state.vf, bed = v && v.beds.find(b => b.id === ui.vfBed), box = $('#vbed-body'); if (!bed) { ui.vfBed = null; ui.vfSkip = true; switchView('view-verify'); return; }
   const info = vfInfo(bed), groups = [], sessions = vfOpenSessions(bed.id), openBy = {};
   sessions.forEach(x => { (openBy[x.activity] = openBy[x.activity] || []).push(x); });
+  const sessHtml = sessions.length ? '<div class="list">' + sessions.map(x => `<div class="item"><div class="item-top"><span class="item-title">${esc(x.activity)}</span><span class="item-time">${esc(titleCase(x.status === 'ASSIGNED' ? 'not started' : x.status))}</span></div><p class="sub">${esc(x.worker)}</p></div>`).join('') + '</div>' : '<p class="sub">Nothing is assigned on this bed yet.</p>';
+  if (info.histOnly) {   // planted / growing / released bed: no reset checklist, show what the activity log holds
+    $('#h-vbed').textContent = 'Activities · ' + bed.id;
+    const nVer = info.hx.filter(e => e.status === 'verified').length;
+    box.innerHTML = `<div class="sec-head"><h2 style="font-size:20px">Activities · for bed ${esc(bed.id)} · ${info.hx.length} logged</h2></div>
+      <p class="meta">${esc([bed.block, bed.status && titleCase(bed.status), bed.cohortId && bed.crop ? bed.crop + ' (' + bed.cohortId + ')' : ''].filter(Boolean).join(' · '))}</p>
+      <div class="group" style="padding:14px 16px"><div class="chips">${info.pendingAll ? `<span class="chip med">${info.pendingAll} waiting for verification</span>` : '<span class="chip">Nothing waiting for verification</span>'}<span class="chip neutral">${nVer} of ${info.hx.length} verified</span></div>
+        <p>This bed is past its reset, so its activities come from the activity log.</p></div>
+      ${vfHxSection(bed)}
+      <div class="bucket-head" style="margin-top:14px"><h3>Dispatch</h3></div>${sessHtml}`;
+    syncPickBar(); return;
+  }
   info.steps.forEach(s => { let gp = groups.find(x => x.name === s.domain); if (!gp) { gp = { name: s.domain, steps: [] }; groups.push(gp); } gp.steps.push(s); });
   const upNext = groups.find(gp => gp.steps.some(s => s.status !== 'COMPLETE'));
   const assignableLeft = info.steps.filter(s => vfAssignable(bed, s)).length, w = bed.pv && bed.pv.waiting;
@@ -1276,8 +1358,18 @@ function renderVerifyBed() {
     <div class="bucket-head" style="margin-top:14px"><h3>Overrides</h3><span class="count">${ovr.length}</span></div>
     ${ovr.length ? '<div class="list">' + ovr.map(o => `<div class="item"><div class="item-top"><span class="item-title">${esc(o.name)}</span><span class="item-time">${esc(o.date)}</span></div><p class="sub">${esc(workerName(o.by) || o.by)}: ${esc(o.reason)}</p></div>`).join('') + '</div>' : '<p class="sub">None. A manager can skip a step with a written reason.</p>'}
     <div class="bucket-head" style="margin-top:14px"><h3>Dispatch · ${info.assigned} of ${info.left} remaining assigned</h3></div>
-    ${sessions.length ? '<div class="list">' + sessions.map(x => `<div class="item"><div class="item-top"><span class="item-title">${esc(x.activity)}</span><span class="item-time">${esc(titleCase(x.status === 'ASSIGNED' ? 'not started' : x.status))}</span></div><p class="sub">${esc(x.worker)}</p></div>`).join('') + '</div>' : '<p class="sub">Nothing is assigned on this bed yet.</p>'}`;
-  syncVfBar();
+    ${sessHtml}${info.hx.length ? vfHxSection(bed) : ''}`;
+  syncVfBar(); syncPickBar();
+}
+/* One bed's activity-log history: what still needs signing off (tickable where the server allows it), then every entry. */
+function vfHxSection(bed) {
+  const es = vfStepEntries().filter(e => e.bed === bed && e.hist).sort((a, b) => (b.at ? b.at.getTime() : 0) - (a.at ? a.at.getTime() : 0));
+  if (!es.length) return '<p class="sub" style="margin-top:14px">Nothing has been logged on this bed yet.</p>';
+  const pend = es.filter(e => e.status === 'pending');
+  const chip = e => e.status === 'verified' ? `<span class="chip">${esc(e.label || 'Verified')}</span>` : e.status === 'pending' ? '<span class="chip med">Waiting for verification</span>' : '<span class="chip neutral">Completed</span>';
+  return vfPendHtml(pend) + `<div class="bucket-head" style="margin-top:14px"><h3>Activity history</h3><span class="count">${es.length}</span></div><div class="list">` +
+    es.map(e => `<div class="item stripe ${e.status === 'verified' ? 'low' : e.status === 'pending' ? 'med' : 'neutral'}"><div class="item-top"><span class="item-title">${esc(vfActLabel(e.name))}</span></div>
+      <div class="chips">${chip(e)}</div><p class="sub">${esc(vfActDesc(e.name))}</p>${vfWorkHtml(e.step)}${vfPendNote(e)}</div>`).join('') + '</div>';
 }
 function syncVerifyBar() {
   const b = $('#vf-vgo'); if (!b) return;
