@@ -435,7 +435,7 @@ const ACTIONS = {
   terminateCohort: 'terminate-cohort',
   // verify screen: all of these routes already exist in Code_main.gs
   todayView: 'get-manager-today-view', startSessions: 'start-sessions', overridePostHarvest: 'override-post-harvest',
-  completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', verifyActivities: 'verify-activities'
+  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', verifyActivities: 'verify-activities'
 };
 /* BACKEND CONTRACT (what this app sends and reads; field names are matched loosely, so findingId, Finding_ID and
    finding_id all work). Every request is POST text/plain JSON: {action, ...payload, managerId}. Every reply is
@@ -970,7 +970,7 @@ function vfBuildHx(raw, bed, seqOf) {
     const rs_ = by[name], un = rs_.filter(r => rv(r) === 'COMPLETED');
     const allVer = rs_.every(r => rv(r) === 'VERIFIED');
     const ownGate = VF_OWN_GATE.includes(name.toLowerCase());
-    const needsSignOff = un.some(r => String(g(r, 'governance') || '').toUpperCase() === 'VERIFIED');
+    const unV = un.filter(r => String(g(r, 'governance') || '').toUpperCase() === 'VERIFIED'), needsSignOff = unV.length > 0;
     const status = !un.length ? 'verified' : needsSignOff ? 'pending' : 'done';
     const people = {}; let hours = 0, lastEnd = 0, firstStart = 0, vAt = 0, vBy = '', cAt = 0, cBy = '';
     rs_.forEach(r => {
@@ -983,7 +983,7 @@ function vfBuildHx(raw, bed, seqOf) {
       if (c && c.getTime() > cAt) { cAt = c.getTime(); cBy = g(r, 'checkedBy') || ''; }
     });
     const times = [lastEnd, vAt, cAt].filter(Boolean);
-    return { name, status, ownGate, actionable: status === 'pending' && !ownGate && (seqOf[name] || 0) > 0,
+    return { name, status, ownGate, actionable: status === 'pending' && !ownGate, viaReview: (seqOf[name] || 0) === 0, sessionIds: unV.map(r => String(g(r, 'sessionId') || '')).filter(Boolean),
       label: !un.length && !allVer ? 'Checked' : 'Verified',
       at: new Date(vAt || cAt || lastEnd || 0), times,
       step: { name, work: { noBudget: true, completedBy: Object.keys(people).map(k => ({ name: people[k].name, hours: people[k].hours })),
@@ -1102,7 +1102,7 @@ function vfStepEntries() {
   const out = [];
   state.vf.beds.forEach(b => {
     const view = vfView(b), released = !b.pv;
-    (b.hx || []).forEach(h => out.push({ bed: b, name: h.name, status: h.status, step: h.step, released, hist: true, actionable: h.actionable, ownGate: h.ownGate, label: h.label, at: h.at, times: h.times }));
+    (b.hx || []).forEach(h => out.push({ bed: b, name: h.name, status: h.status, step: h.step, released, hist: true, actionable: h.actionable, viaReview: h.viaReview, sessionIds: h.sessionIds, ownGate: h.ownGate, label: h.label, at: h.at, times: h.times }));
     if (!view) return;
     vfSteps(b).forEach(s => {
       if (s.work) {
@@ -1158,8 +1158,7 @@ const vfPickKey = e => e.bed.id + '||' + e.name;
 /* Why a waiting entry has no tick box: this app can only sign off reset steps; everything else has its own gate. */
 function vfPendNote(e) {
   if (e.status !== 'pending' || e.actionable !== false) return '';
-  return e.ownGate ? '<p class="sub">Signed off by Verify planting. The planting is already verified, so this log entry still needs its stamp.</p>'
-    : '<p class="sub">A custom activity: sign it off in the Review Board in ranch_aab.</p>';
+  return e.ownGate ? '<p class="sub">Signed off by Verify planting. The planting is already verified, so this log entry still needs its stamp.</p>' : '';
 }
 function vfPendHtml(list) {
   if (!list.length) return '';
@@ -1185,7 +1184,7 @@ function vfPickAll(on) { $$('[data-act="vf-pick"]').forEach(c => { c.checked = o
 function vfPickSheet() {
   const picks = vfStepEntries().filter(e => e.status === 'pending' && e.actionable !== false && ui.vfPick.has(vfPickKey(e)));
   if (!picks.length) return;
-  const byBed = {}; picks.forEach(e => { const gp = (byBed[e.bed.id] = byBed[e.bed.id] || { bed: e.bed, names: [], steps: [], hist: [] }); gp.names.push(e.name); (e.hist ? gp.hist : gp.steps).push(e.name); });
+  const byBed = {}; picks.forEach(e => { const gp = (byBed[e.bed.id] = byBed[e.bed.id] || { bed: e.bed, names: [], steps: [], hist: [], review: [], sess: [] }); gp.names.push(e.name); if (!e.hist) gp.steps.push(e.name); else if (e.viaReview) { gp.review.push(e.name); gp.sess.push(...e.sessionIds); } else gp.hist.push(e.name); });
   openSheet({
     title: 'Verify ' + picks.length + (picks.length === 1 ? ' activity' : ' activities'),
     body: sumRows(Object.values(byBed).map(g => ['Bed ' + g.bed.id, g.names.map(vfActLabel).join(', ')])) +
@@ -1194,6 +1193,10 @@ function vfPickSheet() {
       try {
         for (const gp of Object.values(byBed)) {
           if (gp.steps.length) await apiCall(ACTIONS.verifyActivities, { scope: vfKey(gp.bed), bedId: gp.bed.id, cohortId: vfCohortTurnover(gp.bed) ? gp.bed.cohortId : '', activities: gp.steps }, VF_TIMEOUT_MS);
+          if (gp.review.length) {
+            try { await apiCall(ACTIONS.reviewActivity, { sessionIds: gp.sess, decision: 'VERIFY' }, VF_TIMEOUT_MS); }
+            catch (err) { throw apiError('Could not sign off ' + gp.review.join(', ') + ' on bed ' + gp.bed.id + ': ' + err.message, 'VERIFY'); }
+          }
           if (gp.hist.length) {
             try { await apiCall(ACTIONS.verifyActivities, { scope: 'BED:' + gp.bed.id, bedId: gp.bed.id, cohortId: '', activities: gp.hist }, VF_TIMEOUT_MS); }
             catch (err) { throw apiError('Could not sign off ' + gp.hist.join(', ') + ' on bed ' + gp.bed.id + ': ' + err.message + ' The server signs off a reset step only while its reset is on record for the bed.', 'VERIFY'); }
