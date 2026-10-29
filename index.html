@@ -355,13 +355,14 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
     <div class="seg" id="verify-seg" role="group" aria-label="Filter">
       <button type="button" data-act="vf-filter" data-f="action" aria-pressed="true">Needs action</button>
       <button type="button" data-act="vf-filter" data-f="ready" aria-pressed="false">Ready to verify</button>
-      <button type="button" data-act="vf-filter" data-f="waiting" aria-pressed="false">Waiting</button>
+      <button type="button" data-act="vf-filter" data-f="waiting" aria-pressed="false">In progress</button>
       <button type="button" data-act="vf-filter" data-f="verified" aria-pressed="false">Verified</button>
       <button type="button" data-act="vf-filter" data-f="log" aria-pressed="false">Activity log</button>
       <button type="button" data-act="vf-filter" data-f="notstarted" aria-pressed="false">Not started</button>
       <button type="button" data-act="vf-filter" data-f="reassigned" aria-pressed="false">Reassigned</button>
       <button type="button" data-act="vf-filter" data-f="all" aria-pressed="false">All beds</button>
     </div>
+    <p class="meta" id="verify-units" style="margin:-4px 0 12px">The bed tabs count beds. The Activity log counts individual activities, so its totals are higher.</p>
     <div class="filters">
       <label class="field" style="grid-column:1/-1"><span>Block</span><select class="input" id="verify-block"><option value="">All blocks</option></select></label>
       <label class="field"><span>Activity from</span><input class="input" id="verify-from" type="date"></label>
@@ -1022,13 +1023,13 @@ function vfRowHtml(b, i, re) {
     const lv = i.lastVerified;
     return `<button class="item stripe low" style="${VF_ROW_STYLE}" data-act="verify-open" data-bed="${esc(b.id)}" type="button">
       <div class="item-top"><span class="item-title">${esc(b.id)}${b.block ? ' · ' + esc(b.block) : ''}</span><span class="item-time">${i.done} of ${i.steps.length} complete</span></div>
-      <div class="chips"><span class="chip">Verified, bed released</span>${i.pending ? `<span class="chip med">${i.pending} still to verify</span>` : ''}${lv.at ? `<span class="chip neutral">Last verified ${esc(fmtDate(lv.at))}</span>` : ''}</div>
-      <p class="sub">${lv.at ? 'Verified by ' + esc(lv.by || 'a manager') + ' · ' + esc(fmtWhen(lv.at)) : 'Reset finished.'}${i.pending ? ' Open the bed to verify the remaining activities.' : ''}</p></button>`;
+      <div class="chips">${i.pending ? '<span class="chip neutral">Bed released</span>' : '<span class="chip">Verified, bed released</span>'}${i.pending ? `<span class="chip med">${i.pending} activit${i.pending === 1 ? 'y' : 'ies'} still to verify</span>` : ''}${lv.at ? `<span class="chip neutral">Last verified ${esc(fmtDate(lv.at))}</span>` : ''}</div>
+      <p class="sub">${lv.at ? 'Last sign-off by ' + esc(lv.by || 'a manager') + ' · ' + esc(fmtWhen(lv.at)) : 'Reset finished.'}${i.pending ? ' Open the bed to sign off the remaining activities.' : ''}</p></button>`;
   }
   const w = b.pv && b.pv.waiting;
   return `<button class="item stripe ${i.ready ? 'low' : 'high'}" style="${VF_ROW_STYLE}" data-act="verify-open" data-bed="${esc(b.id)}" type="button">
       <div class="item-top"><span class="item-title">${esc(b.id)}${b.block ? ' · ' + esc(b.block) : ''}</span><span class="item-time">${i.done} of ${i.steps.length} complete</span></div>
-      <div class="chips">${i.ready ? '<span class="chip">Ready to verify</span>' : '<span class="chip med">Waiting</span>'}
+      <div class="chips">${i.ready ? '<span class="chip">Ready to verify</span>' : '<span class="chip med">In progress</span>'}
         ${w ? `<span class="chip med">Time gate${w.eligibleDate ? ' until ' + esc(fmtDate(w.eligibleDate)) : ''}</span>` : ''}
         ${re.length ? `<span class="chip med">Reassigned from ${esc(re[0])}</span>` : ''}${i.assigned ? `<span class="chip neutral">${i.assigned} assigned</span>` : ''}${i.pending ? `<span class="chip med">${i.pending} to verify</span>` : ''}${i.last ? `<span class="chip neutral">Last activity ${esc(fmtDate(i.last))}</span>` : ''}</div>
       ${(() => { const n = Array.from(new Set(vfOpenSessions(b.id).map(x => x.worker).filter(Boolean))); return n.length ? `<p class="sub">Assigned to ${esc(n.join(', '))}</p>` : ''; })()}
@@ -1098,12 +1099,14 @@ function renderVerify() {
     const i = vfInfo(b); i.kind = 'verified'; i.re = []; i.times = vfActivityTimes(b); i.last = i.times.length ? Math.max.apply(null, i.times) : 0;
     i.lastVerified = vfLastVerified(b); i.waiting = false; i.notstarted = false; infos[b.id] = i;
   });
+  // A released bed is only "Verified" when every completed activity on it is signed off. Otherwise it still needs the manager.
+  const relPending = rel.filter(b => infos[b.id].pending > 0), relDone = rel.filter(b => !infos[b.id].pending);
   const nReady = turn.filter(b => infos[b.id].ready).length, nRe = turn.filter(b => infos[b.id].re.length).length;
   const nWait = turn.filter(b => infos[b.id].waiting).length, nNot = turn.filter(b => infos[b.id].notstarted).length;
   const planting = v.beds.filter(b => b.cohortStatus === 'PRE_PLANTING' && b.cohortId);
   const logCount = vfStepEntries().length;
-  const counts = { action: nReady + nWait, ready: nReady, waiting: nWait, verified: rel.length, log: logCount, notstarted: nNot, reassigned: nRe, all: turn.length };
-  const labels = { action: 'Needs action', ready: 'Ready to verify', waiting: 'Waiting', verified: 'Verified', log: 'Activity log', notstarted: 'Not started', reassigned: 'Reassigned', all: 'All beds' };
+  const counts = { action: nReady + nWait + relPending.length, ready: nReady, waiting: nWait, verified: relDone.length, log: logCount, notstarted: nNot, reassigned: nRe, all: turn.length };
+  const labels = { action: 'Needs action', ready: 'Ready to verify', waiting: 'In progress', verified: 'Verified', log: 'Activity log', notstarted: 'Not started', reassigned: 'Reassigned', all: 'All beds' };
   $$('#verify-seg button').forEach(b => { const f = b.dataset.f; b.textContent = labels[f] + ' · ' + counts[f]; b.setAttribute('aria-pressed', String(f === ui.vfFilter)); });
   const today = vfIso(new Date()), wk = vfIso(new Date(Date.now() - 6 * 86400000));
   $('#verify-from').value = ui.vfFrom; $('#verify-to').value = ui.vfTo;
@@ -1125,13 +1128,14 @@ function renderVerify() {
 
   const pass = b => { const i = infos[b.id];
     return (!ui.vfBlock || b.block === ui.vfBlock) && vfDateOk(i.times) &&
-      (isVer || ui.vfFilter === 'all' || (ui.vfFilter === 'action' && (i.ready || i.waiting)) || (ui.vfFilter === 'ready' && i.ready) ||
+      (isVer || ui.vfFilter === 'all' || (ui.vfFilter === 'action' && (i.ready || i.waiting || (i.kind === 'verified' && i.pending > 0))) || (ui.vfFilter === 'ready' && i.ready) ||
        (ui.vfFilter === 'waiting' && i.waiting) || (ui.vfFilter === 'notstarted' && i.notstarted) || (ui.vfFilter === 'reassigned' && i.re.length)); };
-  const shown = (isVer ? rel : turn).filter(pass).sort(isVer
+  const pool = isVer ? relDone : ui.vfFilter === 'action' ? turn.concat(relPending) : turn;
+  const shown = pool.filter(pass).sort(isVer
     ? (a, b) => (infos[b.id].lastVerified.at - infos[a.id].lastVerified.at) || vfNatural(a.id, b.id)
     : (a, b) => (infos[b.id].ready - infos[a.id].ready) || vfNatural(a.id, b.id));
   hint.hidden = !dated;
-  if (dated) hint.textContent = 'Showing beds with an activity completed, verified, assigned, started or scheduled in this range. Beds with no activity yet have no date, so they only appear under Any date. ' + shown.length + ' of ' + (isVer ? rel.length : turn.length) + ' beds match.';
+  if (dated) hint.textContent = 'Showing beds with an activity completed, verified, assigned, started or scheduled in this range. Beds with no activity yet have no date, so they only appear under Any date. ' + shown.length + ' of ' + pool.length + ' beds match.';
 
   const groups = {};
   shown.forEach(b => { (groups[b.block || 'No block'] = groups[b.block || 'No block'] || []).push(b); });
@@ -1141,7 +1145,7 @@ function renderVerify() {
     const defOpen = act.length > 0 || names.length === 1 || !!ui.vfBlock;
     const open = name in ui.vfOpen ? ui.vfOpen[name] : defOpen;
     const gReady = list.filter(b => infos[b.id].ready).length, gWait = list.filter(b => infos[b.id].waiting).length, gVer = isVer ? list.length : 0;
-    const chips = (gVer ? `<span class="chip">${gVer} verified</span>` : '') + (gReady ? `<span class="chip">${gReady} ready</span>` : '') + (gWait ? `<span class="chip med">${gWait} waiting</span>` : '') +
+    const chips = (gVer ? `<span class="chip">${gVer} verified</span>` : '') + (gReady ? `<span class="chip">${gReady} ready</span>` : '') + (gWait ? `<span class="chip med">${gWait} in progress</span>` : '') +
       (idle.length ? `<span class="chip neutral">${idle.length} not started</span>` : '');
     return `<div class="group"><button class="group-head vf-ghead" type="button" data-act="vf-toggle" data-block="${esc(name)}" aria-expanded="${open}">
         <b><span class="vf-caret">${open ? '▾' : '▸'}</span>${esc(name)}</b><span class="vf-gchips">${chips}<span class="sub">${list.length} ${list.length === 1 ? 'bed' : 'beds'}</span></span></button>` +
@@ -1150,7 +1154,7 @@ function renderVerify() {
   }).join('');
   const emptyMsg = !turn.length && !isVer ? ['Nothing is waiting for verification', 'Beds appear here while they are in turnover or not yet verified.']
     : isVer ? ['No verified beds match', rel.length ? 'Try another block or date range, or choose Any date.' : 'Beds show here after you verify them ready. Their activities stay in the Activity log.']
-    : ui.vfFilter === 'waiting' ? ['No beds are waiting', 'A bed is waiting once work has started on it but it is not ready to verify yet.']
+    : ui.vfFilter === 'waiting' ? ['No beds are in progress', 'A bed is in progress once work has started on it but it is not ready to verify yet.']
     : ui.vfFilter === 'ready' ? ['No beds are ready to verify', 'A bed is ready once every required activity is complete or overridden.']
     : (ui.vfFilter === 'action' && !dated && !ui.vfBlock) ? ['No beds need action right now', nNot + ' beds have not started their reset. Choose Not started to see them, or All beds.']
     : ['Nothing matches', 'Try another filter, block or date range.'];
