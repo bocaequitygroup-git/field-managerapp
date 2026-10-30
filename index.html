@@ -435,7 +435,7 @@ const ACTIONS = {
   terminateCohort: 'terminate-cohort',
   // verify screen: all of these routes already exist in Code_main.gs
   todayView: 'get-manager-today-view', startSessions: 'start-sessions', overridePostHarvest: 'override-post-harvest',
-  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', verifyActivities: 'verify-activities'
+  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities'
 };
 /* BACKEND CONTRACT (what this app sends and reads; field names are matched loosely, so findingId, Finding_ID and
    finding_id all work). Every request is POST text/plain JSON: {action, ...payload, managerId}. Every reply is
@@ -1461,7 +1461,9 @@ function vfPlantSheet(bedId) {
     body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${today}" max="${today}"></label>` +
       '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted.</p>',
-    actions: [{ label: 'Verify planting', primary: true, done: 'Planting verified.', run: async () => {
+    actions: [{ label: 'Propagation verified', done: 'Propagation marked verified.', run: async () => {
+      await apiCall(ACTIONS.verifyPropagation, { cohortId: bed.cohortId });
+    } }, { label: 'Verify planting', primary: true, done: 'Planting verified.', run: async () => {
       await apiCall(ACTIONS.verifyPlanting, { cohortId: bed.cohortId, actualDob: $('#vp-date').value });
       await loadVerify({ silent: true });
     } }]
