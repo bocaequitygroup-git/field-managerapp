@@ -435,7 +435,7 @@ const ACTIONS = {
   terminateCohort: 'terminate-cohort',
   // verify screen: all of these routes already exist in Code_main.gs
   todayView: 'get-manager-today-view', startSessions: 'start-sessions', overridePostHarvest: 'override-post-harvest',
-  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities'
+  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities', verifyItems: 'verify-items'
 };
 /* BACKEND CONTRACT (what this app sends and reads; field names are matched loosely, so findingId, Finding_ID and
    finding_id all work). Every request is POST text/plain JSON: {action, ...payload, managerId}. Every reply is
@@ -932,6 +932,9 @@ async function loadVerify(opts = {}) {
       status: String(g(s, 'status') || '').toUpperCase() }));
     const reassigned = {};   // bedId -> names the board says were handed over
     if (board) listOf(board, 'sessions', 'openSessions', 'board').map(normSession).forEach(s => { if (s.reassignedFrom) (reassigned[s.bedId] = reassigned[s.bedId] || []).push(workerName(s.reassignedFrom)); });
+    // Server snapshot (VerificationSnapshot.gs): what is waiting for sign-off is decided there, once, for every screen.
+    const vsAll = (day && day.verification) || null, vsByBed = {};
+    if (vsAll) (vsAll.items || []).forEach(i => { (vsByBed[String(i.bedId)] = vsByBed[String(i.bedId)] || []).push(i); });
     const beds = listOf(day, 'beds').map(b => {
       const pv = b.postHarvest && Array.isArray(b.postHarvest.steps) ? b.postHarvest : null;
       // b.reset = the FINISHED reset of a bed the manager already released (BedStatusEngine.gs). Kept so verified work stays visible.
@@ -939,11 +942,12 @@ async function loadVerify(opts = {}) {
       const bed = { id: String(g(b, 'id', 'bedId') || ''), block: g(b, 'blockId') || '', status: String(g(b, 'bedStatus') || '').toUpperCase(),
         cohortId: g(b, 'cohortId') || '', crop: g(b, 'cropName') || '', cohortStatus: String(g(b, 'cohortStatus') || '').toUpperCase(), pv, rs };
       bed.hx = vfBuildHx(b, bed, seqOf);
+      bed.vs = vsByBed[bed.id] || [];
       return bed;
     }).filter(b => b.id);
     let workers = listOf(day, 'workers').map(w => ({ id: String(g(w, 'workerId') || ''), name: g(w, 'name') || g(w, 'workerId') || '' })).filter(w => w.id);
     if (!workers.length) { try { workers = (await ensureWorkers()).filter(w => !/manager|founder/i.test(w.role)).map(w => ({ id: w.id, name: w.name })); } catch (e) { /* assign stays disabled */ } }
-    state.vf = { beds, workers, catalog, descOf, idOf, sessions, reassigned };
+    state.vf = { beds, workers, catalog, descOf, idOf, sessions, reassigned, snapshot: vsAll };
     renderVerify(); if (ui.vfBed) renderVerifyBed();
   } catch (err) { if (!opts.silent) box.innerHTML = errBox(err.message, 'view-verify'); else toast(err.message); }
 }
@@ -1017,8 +1021,10 @@ function vfInfo(bed) {
   const steps = vfSteps(bed), done = steps.filter(s => s.status === 'COMPLETE').length, left = steps.length - done;
   const ready = !!bed.pv && bed.pv.readyToVerify === true && left === 0;
   const assignedNames = new Set(vfOpenSessions(bed.id).map(x => x.activity));
-  const pendingSteps = steps.filter(s => s.needsVerification && s.work);
-  const hx = bed.hx || [], hxPending = hx.filter(e => e.status === 'pending');
+  // The server snapshot decides what is waiting; the local derivation is only a fallback for an older backend.
+  const snap = !!(state.vf && state.vf.snapshot);
+  const pendingSteps = snap ? (bed.vs || []).map(i => ({ name: i.activity, work: i.work, needsVerification: true, status: 'COMPLETE' })) : steps.filter(s => s.needsVerification && s.work);
+  const hx = bed.hx || [], hxPending = snap ? [] : hx.filter(e => e.status === 'pending');
   // pending = checklist steps (signed off with the bed release); pendingAll also counts activities read from the bed's activity log.
   return { steps, done, left, ready, released: !bed.pv && !!bed.rs, pendingSteps, pending: pendingSteps.length, hx, hxPending, pendingAll: pendingSteps.length + hxPending.length,
     histOnly: !vfView(bed) && !vfInTurnover(bed), assigned: steps.filter(s => s.status !== 'COMPLETE' && assignedNames.has(s.name)).length };
@@ -1101,10 +1107,12 @@ function vfRowHtml(b, i, re) {
 function vfStepEntries() {
   const out = [];
   state.vf.beds.forEach(b => {
-    const view = vfView(b), released = !b.pv;
-    (b.hx || []).forEach(h => out.push({ bed: b, name: h.name, status: h.status, step: h.step, released, hist: true, actionable: h.actionable, viaReview: h.viaReview, sessionIds: h.sessionIds, ownGate: h.ownGate, label: h.label, at: h.at, times: h.times }));
+    const view = vfView(b), released = !b.pv, snap = !!state.vf.snapshot;
+    (b.vs || []).forEach(i => { const c = toDate(i.work.completedAt); out.push({ bed: b, name: i.activity, status: 'pending', step: { name: i.activity, work: i.work }, released, actionable: true, at: c, times: c ? [c.getTime()] : [] }); });
+    (b.hx || []).filter(h => !snap || h.status !== 'pending').forEach(h => out.push({ bed: b, name: h.name, status: h.status, step: h.step, released, hist: true, actionable: h.actionable, viaReview: h.viaReview, sessionIds: h.sessionIds, ownGate: h.ownGate, label: h.label, at: h.at, times: h.times }));
     if (!view) return;
     vfSteps(b).forEach(s => {
+      if (s.work && snap && !s.work.verified) return;   // waiting items come from the server snapshot above
       if (s.work) {
         const c = toDate(s.work.completedAt), vd = toDate(s.work.verifiedAt);
         out.push({ bed: b, name: s.name, status: s.work.verified ? 'verified' : 'pending', step: s, released,
@@ -1191,17 +1199,7 @@ function vfPickSheet() {
       '<p class="hint">Confirms the work was done properly. It is logged with your name and the time. It does not release any bed.</p>',
     actions: [{ label: 'Verify', primary: true, done: picks.length === 1 ? 'Activity verified.' : picks.length + ' activities verified.', run: async () => {
       try {
-        for (const gp of Object.values(byBed)) {
-          if (gp.steps.length) await apiCall(ACTIONS.verifyActivities, { scope: vfKey(gp.bed), bedId: gp.bed.id, cohortId: vfCohortTurnover(gp.bed) ? gp.bed.cohortId : '', activities: gp.steps }, VF_TIMEOUT_MS);
-          if (gp.review.length) {
-            try { await apiCall(ACTIONS.reviewActivity, { sessionIds: gp.sess, decision: 'VERIFY' }, VF_TIMEOUT_MS); }
-            catch (err) { throw apiError('Could not sign off ' + gp.review.join(', ') + ' on bed ' + gp.bed.id + ': ' + err.message, 'VERIFY'); }
-          }
-          if (gp.hist.length) {
-            try { await apiCall(ACTIONS.verifyActivities, { scope: 'BED:' + gp.bed.id, bedId: gp.bed.id, cohortId: '', activities: gp.hist }, VF_TIMEOUT_MS); }
-            catch (err) { throw apiError('Could not sign off ' + gp.hist.join(', ') + ' on bed ' + gp.bed.id + ': ' + err.message + ' The server signs off a reset step only while its reset is on record for the bed.', 'VERIFY'); }
-          }
-        }
+        await apiCall(ACTIONS.verifyItems, { items: picks.map(e => ({ bedId: e.bed.id, activity: e.name })) }, VF_TIMEOUT_MS);
       } finally { ui.vfPick = new Set(); await loadVerify({ silent: true }); }
     } }]
   });
@@ -1230,7 +1228,7 @@ function renderVerify() {
   const planting = v.beds.filter(b => b.cohortStatus === 'PRE_PLANTING' && b.cohortId);
   const logCount = vfStepEntries().length;
   const pendAll = vfStepEntries().filter(e => e.status === 'pending');
-  const counts = { action: pendAll.length + planting.length + nReady, ready: nReady, waiting: nWait, verified: rel.length, log: logCount, notstarted: nNot, reassigned: nRe, all: turn.length };
+  const counts = { action: v.snapshot ? v.snapshot.counts.total : pendAll.length + planting.length + nReady, ready: nReady, waiting: nWait, verified: rel.length, log: logCount, notstarted: nNot, reassigned: nRe, all: turn.length };
   const labels = { action: 'To verify', ready: 'Beds ready to release', waiting: 'Reset in progress', verified: 'Released beds', log: 'Activity history', notstarted: 'Reset not started', reassigned: 'Reassigned', all: 'All beds' };
   $('#verify-units').textContent = VF_TAB_HELP[ui.vfFilter] || '';
   $$('#verify-seg button').forEach(b => { const f = b.dataset.f; b.textContent = labels[f] + ' · ' + counts[f]; b.setAttribute('aria-pressed', String(f === ui.vfFilter)); });
@@ -1391,7 +1389,7 @@ function vfVerifyActivitiesSheet() {
     body: sumRows([['Bed', bed.id], ['Activities', names.join(', ')], ['Time taken', fmtHM(hrs)], ['Budget', steps.some(s => s.work.budgetHours != null) ? fmtHM(bud) : '']]) +
       '<p class="hint">Confirms the work was done properly. It is logged with your name and the time. It does not release the bed.</p>',
     actions: [{ label: 'Verify', primary: true, done: names.length === 1 ? 'Activity verified.' : names.length + ' activities verified.', run: async () => {
-      await apiCall(ACTIONS.verifyActivities, { scope: vfKey(bed), bedId: bed.id, cohortId: vfCohortTurnover(bed) ? bed.cohortId : '', activities: names }, VF_TIMEOUT_MS);
+      await apiCall(ACTIONS.verifyItems, { items: names.map(n => ({ bedId: bed.id, activity: n })) }, VF_TIMEOUT_MS);
       ui.vfVerify = new Set(); await loadVerify({ silent: true });
     } }]
   });
