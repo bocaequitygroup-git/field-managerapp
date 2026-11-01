@@ -1458,11 +1458,13 @@ function vfPlantSheet(bedId) {
     title: 'Verify planting',
     body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${today}" max="${today}"></label>` +
-      '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted.</p>',
+      `<label class="field"><span>Plant without nursery sign-off? Reason (only if propagation is not verified)</span><textarea class="input" id="vp-pp-reason" rows="2" maxlength="500"></textarea></label>` +
+      '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted. A greenhouse-propagated cohort needs propagation verified first (button below), or a written reason above.</p>',
     actions: [{ label: 'Propagation verified', done: 'Propagation marked verified.', run: async () => {
       await apiCall(ACTIONS.verifyPropagation, { cohortId: bed.cohortId });
     } }, { label: 'Verify planting', primary: true, done: 'Planting verified.', run: async () => {
-      await apiCall(ACTIONS.verifyPlanting, { cohortId: bed.cohortId, actualDob: $('#vp-date').value });
+      const ppWhy = ($('#vp-pp-reason') ? $('#vp-pp-reason').value : '').trim();
+      await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: $('#vp-date').value }, ppWhy ? { propagationOverrideReason: ppWhy } : {}));
       await loadVerify({ silent: true });
     } }]
   });
