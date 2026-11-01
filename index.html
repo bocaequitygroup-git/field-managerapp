@@ -197,6 +197,20 @@ details.group[open] > summary { border-bottom: 1px solid var(--line); }
 details.group:not([open]) > summary { border-bottom: 0; }
 button.item { font: inherit; color: inherit; }
 
+/* ---------- activity log: grouped ---------- */
+.seg-label { align-self: center; font-weight: 700; color: var(--muted); margin-right: 2px; }
+details.ag { margin-bottom: 12px; }
+details.ag > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 4px; }
+details.ag > summary::-webkit-details-marker { display: none; }
+details.ag > summary::before { content: "\25B8"; color: var(--muted); width: 14px; flex: none; }
+details.ag[open] > summary::before { content: "\25BE"; }
+.ag-title { font-size: 18px; font-weight: 700; }
+.ag-meta { flex: 1; min-width: 0; color: var(--muted); font-size: 14px; }
+details.adesc { margin-top: 4px; }
+details.adesc > summary { cursor: pointer; color: var(--leaf); font-size: 14px; font-weight: 700; }
+details.adesc > p { margin-top: 4px; }
+
+
 /* ---------- sheet (dialog) ---------- */
 dialog.sheet {
   border: 0; padding: 0; width: 100%; max-width: 560px; margin: auto auto 0; border-radius: 18px 18px 0 0;
@@ -295,6 +309,13 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
       <button type="button" data-act="activity-type" data-type="session" aria-pressed="false">Sessions</button>
       <button type="button" data-act="activity-type" data-type="verified" aria-pressed="false">Verified</button>
       <button type="button" data-act="activity-type" data-type="state" aria-pressed="false">Cohort changes</button>
+    </div>
+    <div class="seg" id="activity-group" role="group" aria-label="Group entries by">
+      <span class="seg-label">Group by</span>
+      <button type="button" data-act="activity-group" data-group="date" aria-pressed="true">Date</button>
+      <button type="button" data-act="activity-group" data-group="bed" aria-pressed="false">Bed</button>
+      <button type="button" data-act="activity-group" data-group="worker" aria-pressed="false">Worker</button>
+      <button type="button" data-act="activity-group" data-group="activity" aria-pressed="false">Activity</button>
     </div>
     <div class="filters">
       <label class="field"><span>Worker</span><select class="input" id="activity-worker"><option value="">All workers</option></select></label>
@@ -477,7 +498,7 @@ const state = {
   activityLog: [], scoutFindings: [], vf: null,
   queue: { generatedAt: null, counts: {}, mustDo: [], attention: [], routine: [] }
 };
-const ui = { view: 'view-login', activityType: 'all', loaded: {}, vfFilter: 'action', vfFrom: '', vfTo: '', vfOpen: {}, vfBlock: '', vfAct: '', vfLogStatus: 'all', vfBed: null, vfSkip: false, vfSteps: new Set(), vfWorkers: new Set(), vfVerify: new Set(), vfPick: new Set() };
+const ui = { view: 'view-login', activityType: 'all', activityGroup: 'date', agOpen: {}, loaded: {}, vfFilter: 'action', vfFrom: '', vfTo: '', vfOpen: {}, vfBlock: '', vfAct: '', vfLogStatus: 'all', vfBed: null, vfSkip: false, vfSteps: new Set(), vfWorkers: new Set(), vfVerify: new Set(), vfPick: new Set() };
 
 /* ==========================================================================
    SMALL HELPERS
@@ -886,31 +907,68 @@ function renderActivityLog() {
       : ['Nothing matches', 'Try other filters or another entry type. Completed sessions and cohort state changes show up here.'];
     box.innerHTML = empty(none[0], none[1]); return;
   }
-  box.innerHTML = '<div class="list">' + rows.map(a => {
-    const kind = activityKind(a);
-    const when = verView ? (actVerAt(a) || g(a, 'endTime', 'timestamp', 'time', 'startTime')) : g(a, 'endTime', 'timestamp', 'time', 'startTime');
-    const who = g(a, 'workerName') || workerName(g(a, 'workerId', 'worker')) || '';
+  // ---- grouping: Date (default) | Bed | Worker | Activity ----
+  const mode = ui.activityGroup || 'date';
+  $$('#activity-group button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.group === mode)));
+  const whenOf = a => verView ? (actVerAt(a) || g(a, 'endTime', 'timestamp', 'time', 'startTime')) : g(a, 'endTime', 'timestamp', 'time', 'startTime');
+  const whoOf = a => g(a, 'workerName') || workerName(g(a, 'workerId', 'worker')) || '';
+  const bedOf = a => String(g(a, 'bedId', 'bed') || '');
+  const taskOf = a => String(g(a, 'taskType', 'task') || (activityKind(a) === 'state' ? 'Cohort change' : 'Session'));
+  const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const dayLabel = d => {
+    if (!d) return 'No date';
+    const t0 = new Date(); t0.setHours(0, 0, 0, 0); const d0 = new Date(d); d0.setHours(0, 0, 0, 0);
+    const diff = Math.round((t0 - d0) / 86400000), base = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    return diff === 0 ? 'Today, ' + base : diff === 1 ? 'Yesterday, ' + base : base;
+  };
+  const groupKey = a => {
+    if (mode === 'bed') return bedOf(a) || 'No bed';
+    if (mode === 'worker') return whoOf(a) || 'Worker not recorded';
+    if (mode === 'activity') return taskOf(a);
+    const d = toDate(whenOf(a)); return d ? ymd(d) : '0000 No date';
+  };
+  const groups = new Map();                      // rows are already newest-first, so entries stay newest-first inside each group
+  rows.forEach(a => { const k = groupKey(a); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(a); });
+  let keys = Array.from(groups.keys());
+  if (mode === 'bed') keys.sort((x, y) => (x === 'No bed') - (y === 'No bed') || vfNatural(x, y));
+  else if (mode === 'worker' || mode === 'activity') keys.sort((x, y) => (x === 'Worker not recorded') - (y === 'Worker not recorded') || x.localeCompare(y));
+  // date mode keeps newest day first (insertion order)
+
+  const itemHTML = a => {
+    const kind = activityKind(a), when = whenOf(a), who = whoOf(a);
+    const whenTxt = mode === 'date' ? fmtTime(when) : fmtDateTime(when);
     if (kind === 'state') {
       const from = g(a, 'fromState', 'previousState', 'from'), to = g(a, 'toState', 'newState', 'to');
       return `<div class="item stripe med">
-        <div class="item-top"><span class="item-title">${esc(g(a, 'cohortId', 'cohort') || 'Cohort')} changed state</span><span class="item-time">${esc(fmtDateTime(when))}</span></div>
+        <div class="item-top"><span class="item-title">${esc(g(a, 'cohortId', 'cohort') || 'Cohort')} changed state</span><span class="item-time">${esc(whenTxt)}</span></div>
         <p>${from ? esc(from) + ' to ' : 'Now '}<b>${esc(to || 'unknown')}</b></p>
-        <p class="sub">${['Bed ' + (g(a, 'bedId', 'bed') || '-'), who && 'by ' + who].filter(Boolean).map(esc).join(', ')}</p></div>`;
+        <p class="sub">${[mode !== 'bed' && 'Bed ' + (bedOf(a) || '-'), mode !== 'worker' && who && 'by ' + who].filter(Boolean).map(esc).join(', ')}</p></div>`;
     }
     const dm = g(a, 'durationMinutes', 'duration', 'elapsedMinutes');
     const dur = dm !== undefined ? durationText(dm) : '';
-    const range = [fmtTime(g(a, 'startTime')), fmtTime(g(a, 'endTime'))].filter(Boolean).join(' to ');
-    // "description" is what the activity TYPE is (ACTIVITY_REFERENCE.Description, joined in getActivityFeed()), distinct from the session's own notes.
-    const desc = g(a, 'description');
+    const st = fmtTime(g(a, 'startTime')), en = fmtTime(g(a, 'endTime'));
+    const range = st && en ? st + ' to ' + en : (st || en);
+    const desc = g(a, 'description');              // what the activity TYPE is (ACTIVITY_REFERENCE.Description), kept folded: it is long and repeats
     const vb = actVerBy(a), vAt = actVerAt(a);
+    const line = [mode !== 'worker' && (who || 'Worker not recorded'), dur, mode !== 'bed' && bedOf(a) && 'Bed ' + bedOf(a), mode !== 'bed' && g(a, 'cohortId', 'cohort'), range].filter(Boolean).map(esc).join(' · ');
     return `<div class="item stripe low">
-      <div class="item-top"><span class="item-title">${esc(g(a, 'taskType', 'task') || 'Session')} completed</span><span class="item-time">${esc(fmtDateTime(when))}</span></div>
-      <p>${who ? 'Worker <b>' + esc(who) + '</b>' : 'Worker not recorded'}${dur ? ', ' + esc(dur) : ''}</p>
-      ${desc ? `<p class="sub">${esc(desc)}</p>` : ''}
-      <p class="sub">${['Bed ' + (g(a, 'bedId', 'bed') || '-'), g(a, 'cohortId', 'cohort'), range].filter(Boolean).map(esc).join(', ')}</p>
-      ${vb ? `<div class="chips"><span class="chip">Verified</span></div><p class="sub">Verified by ${esc(workerName(vb))}${vAt ? ' · ' + esc(fmtDateTime(vAt)) : ''}</p>` : ''}
-      ${g(a, 'notes', 'note') ? `<p>${esc(g(a, 'notes', 'note'))}</p>` : ''}</div>`;
-  }).join('') + '</div>';
+      <div class="item-top"><span class="item-title">${esc(mode === 'activity' ? (who || 'Worker not recorded') : taskOf(a))}</span><span class="item-time">${esc(whenTxt)}</span></div>
+      <p class="sub">${line}</p>
+      ${vb ? `<p class="sub"><span class="chip">Verified</span> ${esc(workerName(vb))}${vAt ? ' · ' + esc(fmtDateTime(vAt)) : ''}</p>` : `<p class="sub"><span class="chip neutral">Not verified</span></p>`}
+      ${g(a, 'notes', 'note') ? `<p>${esc(g(a, 'notes', 'note'))}</p>` : ''}
+      ${desc ? `<details class="adesc"><summary>About this step</summary><p class="sub">${esc(desc)}</p></details>` : ''}</div>`;
+  };
+
+  box.innerHTML = keys.map((k, i) => {
+    const list = groups.get(k), n = list.length;
+    const sessions = list.filter(a => activityKind(a) !== 'state'), ver = sessions.filter(a => !!actVerBy(a)).length;
+    const title = mode === 'date' ? dayLabel(toDate(whenOf(list[0]))) : k;
+    const cohort = mode === 'bed' ? (list.map(a => g(a, 'cohortId', 'cohort')).find(Boolean) || '') : '';
+    const meta = [n + (n === 1 ? ' entry' : ' entries'), sessions.length ? ver + ' of ' + sessions.length + ' verified' : '', cohort].filter(Boolean).map(esc).join(' · ');
+    const gk = mode + '|' + k, open = gk in ui.agOpen ? ui.agOpen[gk] : i < 2;
+    return `<details class="ag" data-k="${esc(gk)}" ${open ? 'open' : ''}><summary><span class="ag-title">${esc(title)}</span><span class="ag-meta">${meta}</span><span class="count">${n}</span></summary><div class="list">${list.map(itemHTML).join('')}</div></details>`;
+  }).join('');
+  box.querySelectorAll('details.ag').forEach(d => d.addEventListener('toggle', () => { ui.agOpen[d.dataset.k] = d.open; }));
 }
 
 /* ----- 9. verify: bed turnover checklist, assign / override / verify bed ready, verify planting -----
@@ -1733,6 +1791,7 @@ document.addEventListener('click', e => {
     case 'scan-camera': scanCamera(); break;
     case 'scan-stop': stopScan(); break;
     case 'activity-type': ui.activityType = t.dataset.type; renderActivityLog(); break;
+    case 'activity-group': ui.activityGroup = t.dataset.group; renderActivityLog(); break;
     case 'vf-filter': ui.vfFilter = t.dataset.f; renderVerify(); break;
     case 'vf-lstat': ui.vfLogStatus = t.dataset.s; renderVerify(); break;
     case 'vf-toggle': { const k = t.dataset.block, cur = t.getAttribute('aria-expanded') === 'true'; ui.vfOpen[k] = !cur; renderVerify(); break; }
