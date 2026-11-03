@@ -229,6 +229,22 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+/* ---- Packhouse ---- */
+.ph-card { background: var(--paper); border: 1.5px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+.ph-card h3 { margin: 0 0 2px; font-size: 18px; }
+.ph-meta { color: var(--muted); font-size: 15px; }
+.ph-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.ph-form { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.ph-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
+.ph-checks { list-style: none; margin: 10px 0; padding: 0; }
+.ph-checks li { padding: 3px 0; }
+.ph-ok { color: var(--low); } .ph-bad { color: var(--crit); font-weight: 700; }
+#ph-label { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(22,40,31,.6); }
+#ph-label[hidden] { display: none; }
+.ph-lbox { background: #fff; color: #000; border-radius: 12px; padding: 16px; width: 100%; max-width: 420px; }
+.ph-lid { font-weight: 700; font-size: 24px; line-height: 1.2; margin: 4px 0 8px; }
+.ph-lm { font-size: 15px; margin-top: 4px; }
+@media print { body > *:not(#ph-label) { display: none !important; } #ph-label { position: static; background: #fff; padding: 0; } .ph-lbox { max-width: none; } .noprint { display: none !important; } }
 </style>
 </head>
 <body>
@@ -276,6 +292,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
       <button class="tile" data-act="nav" data-view="view-verify" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg>Verify</button>
       <button class="tile" data-act="nav" data-view="view-history" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></svg>Reassignments</button>
       <button class="tile" data-act="nav" data-view="view-scouting" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Scouting</button>
+    <button class="tile" data-act="nav" data-view="view-packhouse" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Packhouse</button>
     </div>
     <div class="sec-head"><h2 id="h-board" tabindex="-1">Open field sessions</h2><span class="meta" id="board-meta"></span></div>
     <div id="board-list"></div>
@@ -308,6 +325,19 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
   </section>
 
   <!-- 5. scouting -->
+  <!-- Packhouse -->
+  <section id="view-packhouse" class="view" hidden aria-labelledby="h-ph">
+    <div class="sec-head"><h2 id="h-ph" tabindex="-1">Packhouse</h2><span class="meta" id="ph-meta"></span></div>
+    <div class="seg" id="ph-seg" role="group" aria-label="Packhouse section">
+      <button type="button" data-ph="tab" data-tab="receive" aria-pressed="false">Receive</button>
+      <button type="button" data-ph="tab" data-tab="lots" aria-pressed="true">Lots</button>
+      <button type="button" data-ph="tab" data-tab="pack" aria-pressed="false">Pack</button>
+      <button type="button" data-ph="tab" data-tab="cold" aria-pressed="false">Cold room</button>
+      <button type="button" data-ph="tab" data-tab="closeout" aria-pressed="false">Closeout</button>
+    </div>
+    <div id="ph-body"></div>
+  </section>
+
   <section id="view-scouting" class="view" hidden aria-labelledby="h-scouting">
     <div class="viewbar"><button class="btn btn-back" data-act="back" type="button">Board</button><h2 id="h-scouting" tabindex="-1">Scouting findings</h2></div>
     <div class="filters">
@@ -403,6 +433,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
     <div class="sheet-actions"><button class="btn" type="button" data-act="scan-stop">Cancel</button></div>
   </div>
 </dialog>
+<div id="ph-label" hidden></div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
@@ -687,6 +718,7 @@ function syncBoardBtn() { const b = $('#btn-board'); if (b) b.hidden = !state.ma
    NAVIGATION
    ========================================================================== */
 const LOADERS = {
+  'view-packhouse': () => loadPackhouse(),
   'view-board': () => loadBoard(),
   'view-queue': () => loadQueue(),
   'view-harvest-ready': () => loadHarvestCandidates(),
@@ -1922,6 +1954,159 @@ async function mockBackend(action, payload) { return JSON.parse(JSON.stringify(a
 $('#demo-strip').hidden = !IS_DEMO;
 $('#demo-hint').hidden = !IS_DEMO;
 renderHeader();
+const C39_={'0':'000110100','1':'100100001','2':'001100001','3':'101100000','4':'000110001','5':'100110000','6':'001110000','7':'000100101','8':'100100100','9':'001100100','A':'100001001','B':'001001001','C':'101001000','D':'000011001','E':'100011000','F':'001011000','G':'000001101','H':'100001100','I':'001001100','J':'000011100','K':'100000011','L':'001000011','M':'101000010','N':'000010011','O':'100010010','P':'001010010','Q':'000000111','R':'100000110','S':'001000110','T':'000010110','U':'110000001','V':'011000001','W':'111000000','X':'010010001','Y':'110010000','Z':'011010000','-':'010000101','.':'110000100',' ':'011000100','*':'010010100'};
+function code39Svg_(text,h){
+ const t='*'+String(text).toUpperCase()+'*',N=2,W=6,Q=20;let x=Q,bars='';
+ for(const ch of t){const p=C39_[ch];if(!p)continue;for(let i=0;i<9;i++){const w=p[i]==='1'?W:N;if(i%2===0)bars+=`<rect x="${x}" y="0" width="${w}" height="${h}"/>`;x+=w;}x+=N;}
+ const total=x-N+Q;
+ return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${h}" width="100%" height="${h}" preserveAspectRatio="none" fill="#000" role="img" aria-label="Barcode ${esc(text)}">${bars}</svg>`;
+}
+
+/* ==========================================================================
+   PACKHOUSE: dock receiving, grading, wash, dry, cooling, cold room, packing, case labels, dwell alerts, closeout.
+   Every rule lives in the Apps Script backend; this only collects the entries and shows the server's refusals.
+   ========================================================================== */
+const PH = { d: null, co: null, tab: 'lots', open: null, scan: '' };
+const phLb = n => (n == null || n === '' || isNaN(n)) ? '' : (Math.round(n * 100) / 100) + ' lb';
+const phNames = { GRADE: 'Grade', WASH: 'Wash', DRY: 'Dry', PRECOOL: 'Cool', STORE: 'Store', RELEASE: 'Release hold', DISCARD: 'Discard' };
+const phStages = { RECEIVED: 'Received', GRADED: 'Graded', WASHED: 'Washed', DRIED: 'Dried', PRECOOLED: 'Cooled', STORED: 'In cold room', HOLD: 'On hold' };
+const phOpts = (list, blank) => (blank ? `<option value="">${esc(blank)}</option>` : '') + list.map(o => `<option value="${esc(o[0])}">${esc(o[1])}</option>`).join('');
+const phIn = (k, label, attrs) => `<label class="field"><span>${esc(label)}</span><input class="input" data-k="${k}" ${attrs || 'inputmode="decimal" autocomplete="off"'}></label>`;
+const phSel = (k, label, opts) => `<label class="field"><span>${esc(label)}</span><select class="input" data-k="${k}">${opts}</select></label>`;
+const phErr = '<div class="form-error" hidden></div>';
+
+async function loadPackhouse() {
+  const box = $('#ph-body'); if (!PH.d) box.innerHTML = '<p class="hint">Loading…</p>';
+  try { PH.d = await apiCall('get-packhouse'); if (PH.tab === 'closeout') PH.co = await apiCall('get-closeout'); phRender(); }
+  catch (e) { box.innerHTML = errBox(e.message, 'view-packhouse'); }
+}
+function phRender() {
+  const d = PH.d; if (!d) return;
+  $$('#ph-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === PH.tab)));
+  const al = (d.fifo.alerts || []).filter(a => !a.acknowledged).length;
+  $('#ph-meta').textContent = d.incoming.length + ' at the dock · ' + d.lots.length + ' lots' + (al ? ' · ' + al + ' dwell alert' + (al > 1 ? 's' : '') : '');
+  const warn = d.sanitation && !d.sanitation.limitsConfirmed ? '<div class="errbox"><p>Wash limits are still placeholders, not validated limits. Set them from your food-safety plan before go-live.</p></div>' : '';
+  $('#ph-body').innerHTML = warn + ({ receive: phReceive, lots: phLots, pack: phPack, cold: phCold, closeout: phCloseout }[PH.tab])(d);
+}
+function phReceive(d) {
+  const nm = s => String(s == null ? '' : s).toUpperCase().replace(/[\s*]/g, '');
+  const top = `<div class="ph-card"><label class="field"><span>Scan or type the Intake Lot ID</span><input class="input" id="ph-scan" value="${esc(PH.scan)}" autocapitalize="characters" autocomplete="off" spellcheck="false"></label>
+    <div class="ph-row" style="margin-top:0"><button class="btn btn-primary" type="button" data-ph="scan">Find lot</button>${PH.scan ? '<button class="btn" type="button" data-ph="clearscan">Show all</button>' : ''}</div></div>`;
+  let list = d.incoming.map((h, i) => [h, i]);
+  if (PH.scan) list = list.filter(x => nm(x[0].intakeLotId) === PH.scan || nm(x[0].harvestId) === PH.scan);
+  if (!list.length) return top + `<p class="hint">${PH.scan ? 'That lot is not waiting at the dock. It may already be received.' : 'Nothing is waiting at the dock.'}</p>`;
+  return top + list.map(([h, i]) => {
+    const t = h.timer || {}, m = t.minutesLeft;
+    const clock = m == null ? '' : t.overdue ? `<span class="chip crit">Overdue ${Math.abs(Math.round(m))} min</span>` : `<span class="chip ${m < 20 ? 'high' : ''}">${Math.round(m)} min left</span>`;
+    return `<div class="ph-card"><h3>${esc(h.cropId)} · ${esc(h.bedId)}</h3><div class="ph-meta">${esc(h.intakeLotId || h.harvestId)} · picked ${esc(fmtTime(h.pickedAt))}${h.weight != null ? ' · field ' + phLb(h.weight) : ''}</div><div class="chips">${clock}</div>
+      <div class="ph-form" data-form="rcv"><div class="ph-grid">${phIn('receivedWeight', 'Scale weight (lb)')}${phIn('scaleId', 'Scale ID', 'autocapitalize="characters" autocomplete="off"')}</div>
+      ${phSel('coldChainOk', 'Cold enough on arrival?', '<option value="">Choose</option><option value="yes">Yes</option><option value="no">No</option>')}${phErr}
+      <button class="btn btn-primary btn-block" type="button" data-ph="receive" data-i="${i}">Receive lot</button></div></div>`;
+  }).join('');
+}
+function phLots(d) {
+  if (!d.lots.length) return '<p class="hint">No lots are in the packhouse.</p>';
+  return d.lots.map(l => {
+    const f = l.fifo, steps = (l.stage === 'HOLD' ? ['RELEASE'] : (l.nextSteps || [])).concat(['DISCARD']);
+    const open = PH.open && PH.open.lotId === l.lotId ? PH.open.step : '';
+    return `<div class="ph-card"><h3>${esc(l.cropId)} · ${esc(l.lotId)}</h3><div class="ph-meta">${esc(l.intakeLotId)} · ${phLb(l.remainingLb)} left${l.grade ? ' · grade ' + esc(l.grade) : ''}${l.within90 === false ? ' · arrived late' : ''}</div>
+      <div class="chips"><span class="chip ${l.stage === 'HOLD' ? 'crit' : 'neutral'}">${esc(phStages[l.stage] || l.stage)}</span>${l.holdReason ? `<span class="chip crit">${esc(l.holdReason)}</span>` : ''}${f ? `<span class="chip ${f.alert ? 'high' : 'neutral'}">${esc(f.room)} ${esc(f.lane)} · ${Math.round(f.dwellHours || 0)} h</span>` : ''}</div>
+      <div class="ph-row">${steps.map(s => `<button class="btn ${s === open ? 'btn-primary' : ''}" type="button" data-ph="open" data-lot="${esc(l.lotId)}" data-step="${s}">${phNames[s]}</button>`).join('')}</div>${open ? phStepForm(l, open) : ''}</div>`;
+  }).join('');
+}
+function phStepForm(l, s) {
+  const d = PH.d, san = d.sanitation, rooms = d.rooms.slice().sort((a, b) => (b.room === l.needs.room) - (a.room === l.needs.room));
+  const fields = {
+    GRADE: () => phIn('acceptedLb', 'Accepted (lb)') + phIn('cullLb', 'Cull (lb)') + phSel('grade', 'Grade', phOpts(d.grading.grades.map(g => [g, g]), 'Choose')) + phSel('reason', 'Cull reason', phOpts(d.grading.reasons.map(r => [r.code, r.name]), 'No cull')) + phIn('notes', 'Note', 'maxlength="200"'),
+    WASH: () => san.readings.map(r => phIn(r.key, r.label)).join('') + phIn('cullWeight', 'Cull at wash (lb, optional)') + phIn('notes', 'Note', 'maxlength="200"'),
+    DRY: () => phSel('equipment', 'Equipment', phOpts(san.equipment.map(e => [e.code, e.name]), 'Choose')) + phIn('durationMin', 'Minutes') + phIn('cycles', 'Spin cycles (spin dryer)', 'inputmode="numeric"') + '<label class="field"><span><input type="checkbox" data-k="completed"> Drying is complete</span></label>',
+    PRECOOL: () => phSel('method', 'Cooling method', phOpts([['HYDRO', 'Hydro-cool'], ['FORCED_AIR', 'Forced air'], ['NONE', 'None']], 'Choose')),
+    STORE: () => phSel('room', 'Cold room', phOpts(rooms.map(r => [r.room, r.name]))) + phIn('lane', 'Lane (blank = assign automatically)', 'autocapitalize="characters" autocomplete="off"'),
+    RELEASE: () => phIn('notes', 'What was done before release?', 'maxlength="200"'),
+    DISCARD: () => phIn('notes', 'Why is this lot discarded?', 'maxlength="200"')
+  };
+  return `<div class="ph-form" data-form="step" data-lot="${esc(l.lotId)}" data-step="${s}"><div class="ph-grid">${fields[s]()}</div>${phErr}<button class="btn btn-primary btn-block" type="button" data-ph="step">Save: ${phNames[s].toLowerCase()}</button></div>`;
+}
+function phPack(d) {
+  const stored = d.lots.filter(l => l.stage === 'STORED'), need = d.orders.filter(o => o.stillNeededLb === null || o.stillNeededLb > 0);
+  let h = '<div class="sec-head"><h2>Orders to pack</h2></div>' + (need.length ? need.map(o => {
+    const lots = stored.filter(l => l.cropId === o.cropId).sort((a, b) => ((a.fifo && a.fifo.rank) || 99) - ((b.fifo && b.fifo.rank) || 99));
+    const form = lots.length ? `<div class="ph-form" data-form="pack" data-order="${esc(o.orderId)}">${phSel('lotId', 'Lot (oldest first)', lots.map(l => `<option value="${esc(l.lotId)}">${l.fifo && l.fifo.nextToPack ? 'Pack next · ' : ''}${esc(l.lotId)} · ${phLb(l.remainingLb)} · ${Math.round((l.fifo && l.fifo.dwellHours) || 0)} h</option>`).join(''))}
+      <div class="ph-grid">${phIn('packedWeight', 'Packed weight (lb)')}${phSel('packagingFormat', 'Packaging', phOpts(d.packaging.formats.map(f => [f.code, f.name]), 'Choose'))}${phIn('packageCount', 'How many', 'inputmode="numeric" autocomplete="off"')}</div>${phErr}
+      <button class="btn btn-primary btn-block" type="button" data-ph="pack">Pack and issue case code</button></div>` : '<p class="hint">No cold-stored lot of this crop yet.</p>';
+    return `<div class="ph-card"><h3>${esc(o.restaurant)} · ${esc(o.cropId)}</h3><div class="ph-meta">Bay ${esc(o.bay)} · needs ${phLb(o.stillNeededLb)}${o.neededBy ? ' by ' + esc(o.neededBy) : ''}</div>${form}</div>`;
+  }).join('') : '<p class="hint">No open orders.</p>');
+  h += '<div class="sec-head"><h2>Boxes waiting</h2></div>';
+  h += d.boxesWaiting.length ? d.boxesWaiting.map(b => `<div class="ph-card"><label class="ph-row" style="margin:0"><input type="checkbox" data-pick="${esc(b.packId)}"><b>${esc(b.destination)}</b></label>
+    <div class="ph-meta">${esc(b.caseCode || b.packId)} · ${esc(b.cropId)} · ${phLb(b.packedLb)}${b.packagingFormat ? ' · ' + b.packageCount + ' × ' + esc(b.packagingFormat.toLowerCase()) : ''}</div>
+    <div class="ph-row"><button class="btn" type="button" data-ph="label" data-pack="${esc(b.packId)}">Print case label</button></div></div>`).join('')
+    + `<div class="ph-form" data-form="pickup">${phIn('pickedUpBy', 'Collected by', 'autocomplete="off"')}${phErr}<button class="btn btn-primary btn-block" type="button" data-ph="pickup">Hand over ticked boxes</button></div>` : '<p class="hint">No boxes are waiting for pickup.</p>';
+  return h;
+}
+function phCold(d) {
+  const f = d.fifo, al = f.alerts || [];
+  let h = `<div class="sec-head"><h2>Dwell alerts</h2><span class="meta">Alert at ${f.alertHours} h, escalation at ${f.escalateHours} h</span></div>`;
+  h += al.length ? al.map(a => `<div class="ph-card"><h3>${esc(a.cropId)} · ${esc(a.lotId)}</h3><div class="ph-meta">${esc(a.room)} ${esc(a.lane)} · ${Math.round(a.dwellHours)} h in the room</div>
+    <div class="chips"><span class="chip ${a.status === 'ESCALATED_48' ? 'crit' : 'high'}">${a.status === 'ESCALATED_48' ? 'Escalated' : 'Over 24 h'}</span></div>`
+    + (a.acknowledged ? `<p class="ph-meta">Acknowledged: ${esc(a.ackNote)}</p>` : `<div class="ph-form" data-form="ack" data-lot="${esc(a.lotId)}">${phIn('note', 'What are you doing about it?', 'maxlength="200"')}${phErr}<button class="btn btn-primary btn-block" type="button" data-ph="ack">Acknowledge</button></div>`) + '</div>').join('') : '<p class="hint">No lot is over its dwell limit.</p>';
+  const pn = Object.keys(f.pickNext || {});
+  return h + '<div class="sec-head"><h2>Pack next, oldest first</h2></div>' + (pn.length ? pn.map(c => `<div class="ph-card"><b>${esc(c)}</b> <span class="ph-meta">${esc(f.pickNext[c])}</span></div>`).join('') : '<p class="hint">Nothing is in cold storage.</p>');
+}
+function phCloseout() {
+  const c = PH.co; if (!c) return '<p class="hint">Loading…</p>';
+  return `<div class="sec-head"><h2>Ready for sign-off</h2><span class="meta">${c.waiting} waiting</span></div>` + (c.lots.length ? c.lots.map(l => `<div class="ph-card"><h3>${esc(l.cropId)} · ${esc(l.lotId)}</h3>
+    <div class="ph-meta">${esc(l.intakeLotId)} · received ${phLb(l.receivedLb)} · packed ${phLb(l.packedLb)} · cull ${phLb(l.cullLb)} · ${l.cases} cases</div>
+    <ul class="ph-checks">${l.checks.map(k => `<li class="${k.ok ? 'ph-ok' : 'ph-bad'}">${k.ok ? '✓' : '✗'} ${esc(k.label)}${k.ok ? '' : ': ' + esc(k.detail)}</li>`).join('')}</ul>`
+    + (l.ready ? `<div class="ph-form" data-form="close" data-lot="${esc(l.lotId)}"><label class="field"><span><input type="checkbox" data-k="verified"> I have verified every record for this lot</span></label>${phIn('notes', 'Note (optional)', 'maxlength="200"')}${phErr}<button class="btn btn-primary btn-block" type="button" data-ph="close">Close harvest lot</button></div>` : '<p class="ph-bad">Fix the failed checks before this lot can be closed.</p>') + '</div>').join('') : '<p class="hint">No lots are waiting for closeout.</p>');
+}
+function phShowLabel(l) {
+  const el = $('#ph-label');
+  el.innerHTML = `<div class="ph-lbox"><div class="ph-lm">NGAPORI RANCH · CASE${l.reprint ? ' · REPRINT ' + l.printCount : ''}</div><div class="ph-lid">${esc(l.caseCode)}</div>${code39Svg_(l.caseCode, 60)}
+    <div class="ph-lm">${esc(l.cropId)} · bed ${esc(l.bedId)} · harvested ${esc(l.harvestDate)}</div><div class="ph-lm">Intake lot ${esc(l.intakeLotId)} · grade ${esc(l.grade)}</div>
+    <div class="ph-lm">${l.packageCount} × ${esc(String(l.format).toLowerCase())} · ${phLb(l.packedWeightLb)}</div><div class="ph-lm">${esc(l.restaurant)} · bay ${esc(l.bay)}</div>
+    <div class="ph-row noprint"><button class="btn btn-primary" type="button" data-ph="print">Print label</button><button class="btn" type="button" data-ph="unlabel">Done</button></div></div>`;
+  el.hidden = false;
+}
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target && e.target.id === 'ph-scan') { e.preventDefault(); const b = $('[data-ph=scan]'); if (b) b.click(); } });
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-ph]'); if (!t) return;
+  const a = t.dataset.ph, form = t.closest('[data-form]');
+  if (a === 'tab') { PH.tab = t.dataset.tab; PH.open = null; return loadPackhouse(); }
+  if (a === 'open') { const same = PH.open && PH.open.lotId === t.dataset.lot && PH.open.step === t.dataset.step; PH.open = same ? null : { lotId: t.dataset.lot, step: t.dataset.step }; return phRender(); }
+  if (a === 'scan' || a === 'clearscan') { const el = $('#ph-scan'); PH.scan = a === 'scan' ? String(el ? el.value : '').toUpperCase().replace(/[\s*]/g, '') : ''; phRender(); const w = $('[data-k=receivedWeight]'); if (w && PH.scan) w.focus(); return; }
+  if (a === 'print') { window.print(); return; }
+  if (a === 'unlabel') { $('#ph-label').hidden = true; return; }
+  const v = {}, err = form && $('.form-error', form);
+  if (form) $$('[data-k]', form).forEach(el => { v[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value.trim(); });
+  try {
+    t.disabled = true; if (err) err.hidden = true;
+    let call;
+    if (a === 'receive') {
+      const h = PH.d.incoming[Number(t.dataset.i)];
+      if (v.coldChainOk === '') throw new Error('Answer the cold-chain question.');
+      call = ['receive-harvest', { intakeLotId: h.intakeLotId || undefined, harvestId: h.harvestId, receivedWeight: v.receivedWeight, scaleId: v.scaleId, coldChainOk: v.coldChainOk === 'yes' }, 'Lot received'];
+    } else if (a === 'step') {
+      const s = form.dataset.step, p = Object.assign({ lotId: form.dataset.lot }, v);
+      if (s === 'DRY') p.completed = v.completed === true;
+      if (s === 'GRADE' && p.cullLb === '') p.cullLb = '0';
+      call = s === 'GRADE' ? ['grade-lot', p, 'Lot graded'] : ['lot-step', Object.assign(p, { step: s }), phNames[s] + ' saved'];
+    } else if (a === 'pack') call = ['pack-order', Object.assign({ orderId: form.dataset.order }, v), 'Packed'];
+    else if (a === 'label') call = ['print-case-label', { packId: t.dataset.pack }];
+    else if (a === 'pickup') {
+      const ids = $$('[data-pick]:checked').map(x => x.dataset.pick);
+      if (!ids.length) throw new Error('Tick the boxes being collected.');
+      call = ['confirm-pickup', { packIds: ids, pickedUpBy: v.pickedUpBy }, 'Boxes handed over'];
+    } else if (a === 'ack') call = ['ack-dwell-alert', { lotId: form.dataset.lot, note: v.note }, 'Alert acknowledged'];
+    else if (a === 'close') call = ['close-harvest-lot', { lotId: form.dataset.lot, verified: v.verified === true, notes: v.notes }, 'Lot closed'];
+    else return;
+    const res = await apiCall(call[0], call[1]);
+    if (a === 'label') phShowLabel(res);
+    else { PH.open = null; if (a === 'receive') PH.scan = ''; toast(call[2] + (res && res.caseCode ? ': ' + res.caseCode : res && res.lane ? ' · lane ' + res.lane : '')); }
+    await loadPackhouse();
+  } catch (ex) { if (err) { err.textContent = ex.message; err.hidden = false; } else toast(ex.message); }
+  finally { t.disabled = false; }
+});
+
 if (!restoreSession()) switchView('view-login');
 </script>
 </body>
