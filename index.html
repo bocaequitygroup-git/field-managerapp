@@ -772,6 +772,7 @@ function normSession(s) {
     workerId: String(g(s, 'workerId', 'worker') || ''),
     worker: g(s, 'workerName', 'name', 'worker', 'workerId') || 'Unknown worker',
     task: g(s, 'taskType', 'task', 'activity') || 'Task not set',
+    activityId: String(g(s, 'activityId', 'activityRefId') || ''),   // ACT_xxx, joined server-side (withActivityDescription_ / sessionViewFields_); blank when unknown
     bedId: g(s, 'bedId', 'bed') || '', cohortId: g(s, 'cohortId', 'cohort') || '', crop: g(s, 'cropName', 'crop') || '',
     start: g(s, 'startTime', 'startedAt', 'start'),
     // FIX (bug 4): status/pause/reassignment fields were never read off the session
@@ -832,7 +833,7 @@ function renderBoard() {
     return `
     <article class="session">
       <div class="session-top">
-        <div><h3>${esc(s.worker)}</h3><p class="sub">${esc(s.task)}</p>${s.desc ? `<p class="sub">${esc(s.desc)}</p>` : ''}${createdBy}</div>
+        <div><h3>${esc(s.worker)}</h3><p class="sub">${esc(s.activityId ? s.activityId + ': ' + s.task : s.task)}</p>${s.desc ? `<p class="sub">${esc(s.desc)}</p>` : ''}${createdBy}</div>
         <div class="elapsed">${elapsed}</div>
       </div>
       ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
@@ -1716,7 +1717,7 @@ async function openReassign(i) {
   };
   openSheet({
     title: 'Reassign session',
-    body: sumRows([['Worker', s.worker], ['Task', s.task], ['Bed', s.bedId], ['Cohort', s.cohortId], ['Open for', elapsedText(s.start)]]) + `
+    body: sumRows([['Worker', s.worker], ['Task', s.activityId ? s.activityId + ': ' + s.task : s.task], ['Bed', s.bedId], ['Cohort', s.cohortId], ['Open for', elapsedText(s.start)]]) + `
       <label class="field"><span>Give it to</span><select class="input" id="rs-worker"><option value="">Choose a worker</option>${options.map(w => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join('')}</select></label>
       <label class="field"><span>Note (optional)</span><input class="input" id="rs-note" maxlength="200" autocomplete="off"></label>
       <p class="hint">Reassign moves this open session to the new worker. Close and new ends it now and starts a fresh one. Both are logged.</p>`,
