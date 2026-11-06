@@ -1494,11 +1494,15 @@ function vfPlantSheet(bedId) {
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${today}" max="${today}"></label>` +
       `<label class="field"><span>Plant without nursery sign-off? Reason (only if propagation is not verified)</span><textarea class="input" id="vp-pp-reason" rows="2" maxlength="500"></textarea></label>` +
       '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted. A greenhouse-propagated cohort needs propagation verified first (button below), or a written reason above.</p>',
-    actions: [{ label: 'Propagation verified', done: 'Propagation marked verified.', run: async () => {
+    actions: [{ label: 'Propagation verified', keep: true, done: 'Propagation marked verified. Your planting date is unchanged; now press Verify planting.', run: async () => {
       await apiCall(ACTIONS.verifyPropagation, { cohortId: bed.cohortId });
     } }, { label: 'Verify planting', primary: true, done: 'Planting verified.', run: async () => {
       const ppWhy = ($('#vp-pp-reason') ? $('#vp-pp-reason').value : '').trim();
-      await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: $('#vp-date').value }, ppWhy ? { propagationOverrideReason: ppWhy } : {}));
+      const dob = ($('#vp-date').value || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) throw apiError('Enter a valid planting date (the box is empty or not a real date).', 'INPUT');
+      if (dob > today) throw apiError('The date ' + dob + ' is in the future. Verify planting records a planting that has already happened.', 'INPUT');
+      await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: dob }, ppWhy ? { propagationOverrideReason: ppWhy } : {}));
+      toast('Planting recorded for ' + dob + '.');
       await loadVerify({ silent: true });
     } }]
   });
@@ -1695,7 +1699,7 @@ function openSheet({ title, body, actions }) {
     const a = actions[Number(b.dataset.sheet)];
     const btns = $$('#sheet-body [data-sheet]'); btns.forEach(x => { x.disabled = true; });
     $('#sheet-error').hidden = true;
-    try { await a.run(); dlg.close(); if (a.done) toast(a.done); }
+    try { await a.run(); if (a.keep) { btns.forEach(x => { x.disabled = false; }); if (a.done) toast(a.done); } else { dlg.close(); if (a.done) toast(a.done); } }
     catch (err) { const box = $('#sheet-error'); box.textContent = err.message || 'That did not work.'; box.hidden = false; btns.forEach(x => { x.disabled = false; }); }
   };
   dlg.showModal();
