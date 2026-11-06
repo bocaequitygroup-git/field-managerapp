@@ -976,12 +976,13 @@ async function loadVerify(opts = {}) {
       const bed = { id: String(g(b, 'id', 'bedId') || ''), block: g(b, 'blockId') || '', status: String(g(b, 'bedStatus') || '').toUpperCase(),
         cohortId: g(b, 'cohortId') || '', crop: g(b, 'cropName') || '', cohortStatus: String(g(b, 'cohortStatus') || '').toUpperCase(), pv, rs };
       bed.hx = vfBuildHx(b, bed, seqOf);
+      bed.plantRows = listOf(b, 'activityLog').filter(r => VF_OWN_GATE.includes(String(g(r, 'taskType', 'activity', 'activityName') || '').trim().toLowerCase()));
       bed.vs = vsByBed[bed.id] || [];
       return bed;
     }).filter(b => b.id);
     let workers = listOf(day, 'workers').map(w => ({ id: String(g(w, 'workerId') || ''), name: g(w, 'name') || g(w, 'workerId') || '' })).filter(w => w.id);
     if (!workers.length) { try { workers = (await ensureWorkers()).filter(w => !/manager|founder/i.test(w.role)).map(w => ({ id: w.id, name: w.name })); } catch (e) { /* assign stays disabled */ } }
-    state.vf = { beds, workers, catalog, descOf, idOf, sessions, reassigned, snapshot: vsAll };
+    state.vf = { beds, workers, catalog, descOf, idOf, sessions, allSessions: listOf(day, 'sessions'), reassigned, snapshot: vsAll };
     renderVerify(); if (ui.vfBed) renderVerifyBed();
   } catch (err) { if (!opts.silent) box.innerHTML = errBox(err.message, 'view-verify'); else toast(err.message); }
 }
@@ -1485,13 +1486,36 @@ function vfVerifyBedSheet() {
     } }]
   });
 }
+/* Actual planting date = what the planting activity recorded. Preference: the date the manager scheduled/accepted on the planting
+   session (Scheduled_Date), then the day the planting session was done. Only if no planting activity is found does it fall back to today. */
+function vfIsoDay(v) {
+  if (!v) return '';
+  const m = /^(\d{4}-\d{2}-\d{2})(?:$|[T ]00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?$)/.exec(String(v)); if (m) return m[1];   // a date-only value or midnight: keep the calendar day as written
+  const d = toDate(v); return d ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : '';
+}
+function vfPlantingDate(bed) {
+  const mine = r => { const c = String(g(r, 'cohortId', 'cohort') || ''); return !c || !bed.cohortId || c === bed.cohortId; };
+  const isPlant = r => VF_OWN_GATE.includes(String(g(r, 'taskType', 'activity', 'activityName') || '').trim().toLowerCase());
+  const ts = r => (toDate(g(r, 'assignedTime', 'endTime', 'startTime')) || 0).valueOf();
+  const sess = ((state.vf && state.vf.allSessions) || []).filter(r => String(g(r, 'bedId') || '') === bed.id && isPlant(r) && mine(r))
+    .sort((a, b) => ts(b) - ts(a));
+  for (const r of sess) { const d = vfIsoDay(g(r, 'scheduledDate')); if (d) return { date: d, from: 'scheduled for the ' + (g(r, 'activity', 'taskType') || 'planting') + ' activity' }; }
+  const rows = (bed.plantRows || []).filter(mine).sort((a, b) => ts(b) - ts(a));
+  for (const r of rows) {
+    const d = vfIsoDay(g(r, 'scheduledDate')); if (d) return { date: d, from: 'scheduled for the ' + (g(r, 'taskType') || 'planting') + ' activity' };
+  }
+  for (const r of rows) { const d = vfIsoDay(g(r, 'endTime', 'startTime')); if (d) return { date: d, from: 'the day the ' + (g(r, 'taskType') || 'planting') + ' activity was done' }; }
+  return null;
+}
 function vfPlantSheet(bedId) {
   const bed = state.vf.beds.find(b => b.id === bedId); if (!bed) return;
   const t = new Date(), today = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');   // local day, not UTC
+  const found = vfPlantingDate(bed), startDate = found ? found.date : today;
   openSheet({
     title: 'Verify planting',
     body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
-      `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${today}" max="${today}"></label>` +
+      `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${startDate}"></label>` +
+      `<p class="hint">${found ? 'Filled from the activity: ' + esc(found.from) + '. Change it only if the crop went in on another day.' + (found.date > today ? ' This date is after today; the server decides whether it can be recorded.' : '') : 'No planting activity was found for this bed, so today is filled in. Enter the real date.'}</p>` +
       `<label class="field"><span>Plant without nursery sign-off? Reason (only if propagation is not verified)</span><textarea class="input" id="vp-pp-reason" rows="2" maxlength="500"></textarea></label>` +
       '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted. A greenhouse-propagated cohort needs propagation verified first (button below), or a written reason above.</p>',
     actions: [{ label: 'Propagation verified', keep: true, done: 'Propagation marked verified. Your planting date is unchanged; now press Verify planting.', run: async () => {
@@ -1500,7 +1524,6 @@ function vfPlantSheet(bedId) {
       const ppWhy = ($('#vp-pp-reason') ? $('#vp-pp-reason').value : '').trim();
       const dob = ($('#vp-date').value || '').trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) throw apiError('Enter a valid planting date (the box is empty or not a real date).', 'INPUT');
-      if (dob > today) throw apiError('The date ' + dob + ' is in the future. Verify planting records a planting that has already happened.', 'INPUT');
       await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: dob }, ppWhy ? { propagationOverrideReason: ppWhy } : {}));
       toast('Planting recorded for ' + dob + '.');
       await loadVerify({ silent: true });
