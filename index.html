@@ -1537,7 +1537,7 @@ function vfPlantSheet(bedId) {
       `<label class="field"><span>Plant without nursery sign-off? Reason (only if propagation is not verified)</span><textarea class="input" id="vp-pp-reason" rows="2" maxlength="500"></textarea></label>` +
       '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted. A greenhouse-propagated cohort needs propagation verified first (button below), or a written reason above.</p>',
     actions: [{ label: 'Propagation verified', keep: true, done: 'Propagation marked verified. Your planting date is unchanged; now press Verify planting.', run: async () => {
-      await apiCall(ACTIONS.verifyPropagation, { cohortId: bed.cohortId });
+      await apiCall(ACTIONS.verifyPropagation, { cohortId: bed.cohortId }, VF_TIMEOUT_MS);
     } }, { label: 'Verify planting', primary: true, done: 'Planting verified.', run: async () => {
       const ppWhy = ($('#vp-pp-reason') ? $('#vp-pp-reason').value : '').trim();
       const dob = ($('#vp-date').value || '').trim();
@@ -1547,9 +1547,13 @@ function vfPlantSheet(bedId) {
       if ($('#vp-win') && !$('#vp-win').hidden && !winWhy) throw apiError('This date is outside the allowable planting window. Enter your explanation in the box above.', 'INPUT');
       if ($('#vp-dev') && !$('#vp-dev').hidden && !devWhy) throw apiError('This is not the planned date. Enter a short note in the box above.', 'INPUT');
       try {
-        await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: dob }, ppWhy ? { propagationOverrideReason: ppWhy } : {}, winWhy ? { windowOverrideReason: winWhy } : {}, devWhy ? { deviationReason: devWhy } : {}));
+        await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: dob }, ppWhy ? { propagationOverrideReason: ppWhy } : {}, winWhy ? { windowOverrideReason: winWhy } : {}, devWhy ? { deviationReason: devWhy } : {}), VF_TIMEOUT_MS);
       } catch (err) {
         const c = String(err.code || ''), m = String(err.message || '');
+        if (c === 'TIMEOUT') {   // the server may have finished after the app stopped waiting: look before asking the manager to retry
+          try { await loadVerify({ silent: true }); const nb = state.vf.beds.find(x => x.cohortId === bed.cohortId); if (!nb || nb.cohortStatus !== 'PRE_PLANTING') { toast('Planting recorded for ' + dob + '. The server was slow to answer.'); return; } } catch (e2) { /* fall through */ }
+          err.message = 'The server is taking longer than usual and the planting is not saved yet. Press Verify planting again.';
+        }
         if (c === 'PLANTING_OUTSIDE_WINDOW' || /allowable planting window|must accept it with a written/i.test(m)) { $('#vp-win').hidden = false; err.message = m + ' Enter your explanation in the box above, then press Verify planting again.'; }
         else if (c === 'DEVIATION_REASON_REQUIRED') { $('#vp-dev').hidden = false; err.message = m + ' Enter your explanation in the box above, then press Verify planting again.'; }
         throw err;
