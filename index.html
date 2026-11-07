@@ -100,6 +100,10 @@ h2[tabindex]:focus { outline: none; }
 .input {
   width: 100%; min-height: var(--tap); padding: 8px 12px; border: 1.5px solid #8FA096; border-radius: 10px; background: #fff;
 }
+.vp-alarm { border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; font-size: 15px; background: #FFF4D6; color: #5C4300; border: 1px solid #E8C766; }
+.vp-alarm.crit { background: var(--crit-soft); color: var(--crit); border-color: var(--crit); }
+.vp-alarm.ok { background: #E3F2E1; color: #1E4D1B; border-color: #9CC79A; }
+.vp-alarm b { font-weight: 700; }
 .form-error { color: var(--crit); background: var(--crit-soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; }
 
 /* ---------- board ---------- */
@@ -469,7 +473,7 @@ const ACTIONS = {
   terminateCohort: 'terminate-cohort',
   // verify screen: all of these routes already exist in Code_main.gs
   todayView: 'get-manager-today-view', startSessions: 'start-sessions', overridePostHarvest: 'override-post-harvest',
-  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities', verifyItems: 'verify-items'
+  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', checkPlanting: 'check-planting', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities', verifyItems: 'verify-items'
 };
 /* BACKEND CONTRACT (what this app sends and reads; field names are matched loosely, so findingId, Finding_ID and
    finding_id all work). Every request is POST text/plain JSON: {action, ...payload, managerId}. Every reply is
@@ -1527,6 +1531,7 @@ function vfPlantSheet(bedId) {
     body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${startDate}"></label>` +
       `<p class="hint">${found ? 'Filled from the activity: ' + esc(found.from) + '. Change it only if the crop went in on another day.' + (found.date > today ? ' This date is after today, so the server must allow a completed planting activity scheduled for it.' : '') : 'No finished planting activity was found for this bed, so today is filled in. Enter the real date.'}${found0 && found0.completed && found0.completed !== startDate ? ' The activity was marked complete on ' + esc(found0.completed) + '.' : ''}</p>` +
+      `<div id="vp-alarm" class="vp-alarm" role="alert" hidden></div>` +
       `<div id="vp-win" hidden><label class="field"><span>Explanation for accepting a planting date outside the allowable window (required)</span><textarea class="input" id="vp-win-reason" rows="2" maxlength="500"></textarea></label></div>` +
       `<div id="vp-dev" hidden><label class="field"><span>Explanation for planting on a different date than planned (required)</span><textarea class="input" id="vp-dev-reason" rows="2" maxlength="500"></textarea></label></div>` +
       `<label class="field"><span>Plant without nursery sign-off? Reason (only if propagation is not verified)</span><textarea class="input" id="vp-pp-reason" rows="2" maxlength="500"></textarea></label>` +
@@ -1539,6 +1544,8 @@ function vfPlantSheet(bedId) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) throw apiError('Enter a valid planting date (the box is empty or not a real date).', 'INPUT');
       const val = id => { const el = $(id); return el && !el.closest('[hidden]') ? el.value.trim() : ''; };
       const winWhy = val('#vp-win-reason'), devWhy = val('#vp-dev-reason');
+      if ($('#vp-win') && !$('#vp-win').hidden && !winWhy) throw apiError('This date is outside the allowable planting window. Enter your explanation in the box above.', 'INPUT');
+      if ($('#vp-dev') && !$('#vp-dev').hidden && !devWhy) throw apiError('This is not the planned date. Enter a short note in the box above.', 'INPUT');
       try {
         await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: dob }, ppWhy ? { propagationOverrideReason: ppWhy } : {}, winWhy ? { windowOverrideReason: winWhy } : {}, devWhy ? { deviationReason: devWhy } : {}));
       } catch (err) {
@@ -1551,7 +1558,31 @@ function vfPlantSheet(bedId) {
       await loadVerify({ silent: true });
     } }]
   });
+  /* Alarm before the manager presses Verify: states the actual planting date (it becomes the cohort's DOB), how it compares with the plan
+     and the allowable window, and shows the note box that is required. Re-runs whenever the date changes. */
+  let vpSeq = 0;
+  const vpCheck = async () => {
+    const box = $('#vp-alarm'), win = $('#vp-win'), dev = $('#vp-dev'), el = $('#vp-date'); if (!box || !el) return;
+    const dob = (el.value || '').trim(), seq = ++vpSeq;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) { box.hidden = true; return; }
+    let p = null;
+    try { const res = await apiCall(ACTIONS.checkPlanting, { cohortId: bed.cohortId, actualDob: dob }); p = res && (res.planting || (res.data && res.data.planting)); } catch (e) { /* the server still enforces everything on Verify planting */ }
+    if (seq !== vpSeq || !$('#vp-alarm') || !p || p.state === 'INVALID' || p.state === 'NOT_FOUND') { if (seq === vpSeq && box) box.hidden = true; return; }
+    const days = Math.abs(p.varianceDays) + ' day' + (Math.abs(p.varianceDays) === 1 ? '' : 's') + (p.varianceDays > 0 ? ' after' : ' before');
+    const harvest = p.harvestEarliest ? ' Harvest will be ready <b>' + esc(p.harvestEarliest) + ' to ' + esc(p.harvestLatest) + '</b>.' : '';
+    const dobLine = 'Actual planting date <b>' + esc(p.actualDob) + '</b> becomes this cohort\u2019s DOB (planned ' + esc(p.plannedDob || 'n/a') + '). Irrigation and harvest dates will follow it.';
+    let cls = '', html = '';
+    if (p.state === 'AS_PLANNED') { cls = 'ok'; html = 'Planted on the planned date <b>' + esc(p.actualDob) + '</b>.' + harvest; }
+    else if (p.state === 'DIFFERENT_IN_WINDOW') { html = '<b>Not the planned date.</b> ' + dobLine + ' It is ' + days + ' the plan but inside the allowable window' + (p.windowRange ? ' (' + esc(p.windowRange) + ')' : '') + '.' + harvest + ' Add a short note to accept.'; }
+    else if (p.state === 'OUTSIDE_NEEDS_NOTE') { cls = 'crit'; html = '<b>Outside the allowable planting window.</b> ' + dobLine + ' Allowable window: <b>' + esc(p.windowRange) + '</b>.' + harvest + ' Enter your explanation to accept.'; }
+    else { cls = 'crit'; html = '<b>Outside the allowable planting window (already accepted by ' + esc(p.acceptedBy) + ': ' + esc(p.acceptedReason) + ').</b> ' + dobLine + ' Allowable window: <b>' + esc(p.windowRange) + '</b>.' + harvest + ' Verifying will stamp the cohort as planted outside the window.'; }
+    box.className = 'vp-alarm' + (cls ? ' ' + cls : ''); box.innerHTML = html; box.hidden = false;
+    win.hidden = p.state !== 'OUTSIDE_NEEDS_NOTE'; dev.hidden = p.state !== 'DIFFERENT_IN_WINDOW';
+  };
+  const dateEl = $('#vp-date'); if (dateEl) { dateEl.addEventListener('change', vpCheck); dateEl.addEventListener('input', vpCheck); }
+  vpCheck();
 }
+
 
 /* ----- 5. scouting ----- */
 async function loadScoutFindings() {
