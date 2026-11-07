@@ -1499,13 +1499,22 @@ function vfIsoDay(v) {
 function vfPlantingDate(bed) {
   const mine = r => { const c = String(g(r, 'cohortId', 'cohort') || ''); return !c || !bed.cohortId || c === bed.cohortId; };
   const isPlant = r => VF_OWN_GATE.includes(String(g(r, 'taskType', 'activity', 'activityName') || '').trim().toLowerCase());
-  const ts = r => (toDate(g(r, 'endTime', 'assignedTime', 'startTime')) || 0).valueOf();
+  const ts = r => (toDate(g(r, 'endTime', 'startTime', 'assignedTime')) || 0).valueOf();
+  const sessions = (state.vf && state.vf.allSessions) || [];
+  const sessById = {}; sessions.forEach(r => { const id = String(g(r, 'id', 'sessionId') || ''); if (id) sessById[id] = r; });
   // Only a COMPLETED planting activity says when the crop went in: an assigned one has not happened yet.
-  const done = ((state.vf && state.vf.allSessions) || []).filter(r => String(g(r, 'status') || '').toUpperCase() === 'COMPLETED' && String(g(r, 'bedId') || '') === bed.id && isPlant(r) && mine(r))
-    .concat((bed.plantRows || []).filter(mine)).sort((a, b) => ts(b) - ts(a));
+  const doneSessions = sessions.filter(r => String(g(r, 'status') || '').toUpperCase() === 'COMPLETED' && String(g(r, 'bedId') || '') === bed.id && isPlant(r) && mine(r));
+  const doneLog = (bed.plantRows || []).filter(mine);
+  const done = doneLog.concat(doneSessions).sort((a, b) => ts(b) - ts(a));
   for (const r of done) {
-    const name = g(r, 'taskType', 'activity', 'activityName') || 'planting', dd = vfIsoDay(g(r, 'endTime', 'startTime'));
-    if (dd) return { date: dd, from: 'the day the ' + name + ' activity was completed' };
+    const name = g(r, 'taskType', 'activity', 'activityName') || 'planting';
+    // 1. The date the manager scheduled for the planting (the session row, or the session a log row came from).
+    const sess = sessById[String(g(r, 'sessionId', 'id') || '')] || r;
+    const sched = vfIsoDay(g(sess, 'scheduledDate'));
+    const doneDay = vfIsoDay(g(r, 'endTime', 'startTime'));
+    if (sched) return { date: sched, from: 'the date the ' + name + ' activity was scheduled for', scheduled: sched, completed: doneDay };
+    // 2. No scheduled date on file: the day the activity was completed.
+    if (doneDay) return { date: doneDay, from: 'the day the ' + name + ' activity was completed' };
   }
   return null;
 }
@@ -1517,7 +1526,7 @@ function vfPlantSheet(bedId) {
     title: 'Verify planting',
     body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${startDate}"></label>` +
-      `<p class="hint">${found ? 'Filled from the activity: ' + esc(found.from) + '. Change it only if the crop went in on another day.' + (found.date > today ? ' This date is after today, so the server must allow a completed planting activity scheduled for it.' : '') : 'No finished planting activity was found for this bed, so today is filled in. Enter the real date.'}${found0 && found0.scheduled && found0.scheduled !== startDate ? ' Scheduled date on the activity: ' + esc(found0.scheduled) + '.' : ''}</p>` +
+      `<p class="hint">${found ? 'Filled from the activity: ' + esc(found.from) + '. Change it only if the crop went in on another day.' + (found.date > today ? ' This date is after today, so the server must allow a completed planting activity scheduled for it.' : '') : 'No finished planting activity was found for this bed, so today is filled in. Enter the real date.'}${found0 && found0.completed && found0.completed !== startDate ? ' The activity was marked complete on ' + esc(found0.completed) + '.' : ''}</p>` +
       `<div id="vp-win" hidden><label class="field"><span>Explanation for accepting a planting date outside the allowable window (required)</span><textarea class="input" id="vp-win-reason" rows="2" maxlength="500"></textarea></label></div>` +
       `<div id="vp-dev" hidden><label class="field"><span>Explanation for planting on a different date than planned (required)</span><textarea class="input" id="vp-dev-reason" rows="2" maxlength="500"></textarea></label></div>` +
       `<label class="field"><span>Plant without nursery sign-off? Reason (only if propagation is not verified)</span><textarea class="input" id="vp-pp-reason" rows="2" maxlength="500"></textarea></label>` +
