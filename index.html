@@ -1513,7 +1513,7 @@ function vfPlantingDate(bed) {
 function vfPlantSheet(bedId) {
   const bed = state.vf.beds.find(b => b.id === bedId); if (!bed) return;
   const t = new Date(), today = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');   // local day, not UTC
-  const found = vfPlantingDate(bed), found0 = found, startDate = found ? found.date : today;
+  const found = vfPlantingDate(bed), found0 = found, startDate = found ? found.date : '';
   openSheet({
     title: 'Verify planting',
     body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
