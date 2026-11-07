@@ -1504,8 +1504,7 @@ function vfPlantingDate(bed) {
   const done = ((state.vf && state.vf.allSessions) || []).filter(r => String(g(r, 'status') || '').toUpperCase() === 'COMPLETED' && String(g(r, 'bedId') || '') === bed.id && isPlant(r) && mine(r))
     .concat((bed.plantRows || []).filter(mine)).sort((a, b) => ts(b) - ts(a));
   for (const r of done) {
-    const name = g(r, 'taskType', 'activity', 'activityName') || 'planting', sd = vfIsoDay(g(r, 'scheduledDate')), dd = vfIsoDay(g(r, 'endTime', 'startTime'));
-    if (sd) return { date: sd, from: 'scheduled for the completed ' + name + ' activity' + (dd && dd !== sd ? ' (the work itself was logged on ' + dd + ')' : '') };
+    const name = g(r, 'taskType', 'activity', 'activityName') || 'planting', dd = vfIsoDay(g(r, 'endTime', 'startTime'));
     if (dd) return { date: dd, from: 'the day the ' + name + ' activity was completed' };
   }
   return null;
