@@ -449,7 +449,10 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
 // URL of the deployed WorkerApp web app (Apps Script "/exec" URL). Leave empty to run in demo mode.
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw0dOXaMs3iykTuhv3heOMyQck0i8dJYjO_To60lIOtsYGuL1Lshmxju8Gopt3SWKNy/exec';
 const REQUEST_TIMEOUT_MS = 20000;
-const BOARD_REFRESH_MS = 300000;   // silent board re-fetch every 5 minutes (was 30 s); the Refresh button and every action still reload at once
+// FIX: this had been slowed from 30 s to 5 minutes, so a change another worker/manager made could sit
+// unseen on the board for up to 5 minutes. Restored to a fast interval; the Refresh button and every
+// action still reload at once regardless of this value.
+const BOARD_REFRESH_MS = 15000;
 
 // Read actions are the ones named in the ManagerApp spec. The write actions are implied by the spec but their
 // names are not given, so they are listed here in one place: rename them to match your backend.
@@ -1918,6 +1921,11 @@ setInterval(() => {
   $$('[data-since]').forEach(el => { const v = elapsedText(el.dataset.since); if (v) el.textContent = v; });
 }, 30000);
 setInterval(() => { if (state.managerId && ui.view === 'view-board' && !document.hidden) loadBoard({ silent: true }); }, BOARD_REFRESH_MS);
+// FIX: browsers throttle/pause timers in a hidden tab, so the interval above alone could leave the board
+// stale well past BOARD_REFRESH_MS after switching back. Catch up at once when the tab regains focus.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && state.managerId && ui.view === 'view-board') loadBoard({ silent: true });
+});
 
 /* ==========================================================================
    DEMO BACKEND (only used when WEB_APP_URL is empty). Sample data, not real.
