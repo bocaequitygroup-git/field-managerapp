@@ -219,6 +219,14 @@ dialog.sheet[open] { animation: rise .18s ease-out; }
 .sheet .form-error { margin: 0 0 12px; }
 .sheet-actions { display: grid; gap: 10px; margin-top: 14px; }
 .hint { font-size: 14px; color: var(--muted); margin: -6px 0 12px; }
+/* progress + completed states of a sheet action (openSheet) */
+.sheet-status { text-align: center; padding: 18px 4px 6px; }
+.sheet-status .st-msg { font-size: 18px; font-weight: 600; margin: 12px 0 4px; }
+.sheet-status .st-sub { font-size: 14px; color: var(--muted); margin: 0 0 14px; }
+.sheet-status .st-bar { height: 8px; border-radius: 4px; background: var(--leaf-soft); overflow: hidden; margin: 14px 0 4px; }
+.sheet-status .st-bar i { display: block; height: 100%; width: 40%; background: var(--leaf); border-radius: 4px; animation: st-slide 1.1s ease-in-out infinite; }
+@keyframes st-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.sheet-status .st-tick { width: 56px; height: 56px; border-radius: 50%; background: var(--leaf); color: #fff; font-size: 32px; line-height: 56px; margin: 0 auto; }
 video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ratio: 4 / 3; object-fit: cover; }
 
 #toast {
@@ -1321,7 +1329,7 @@ function vfPickSheet() {
     title: 'Verify ' + picks.length + (picks.length === 1 ? ' activity' : ' activities'),
     body: sumRows(Object.values(byBed).map(g => ['Bed ' + g.bed.id, g.names.map(vfActLabel).join(', ')])) +
       '<p class="hint">Confirms the work was done properly. It is logged with your name and the time. It does not release any bed.</p>',
-    actions: [{ label: 'Verify', primary: true, done: picks.length === 1 ? 'Activity verified.' : picks.length + ' activities verified.', run: async () => {
+    actions: [{ label: 'Verify', primary: true, progress: 'Verifying ' + picks.length + (picks.length === 1 ? ' activity' : ' activities') + '\u2026', done: picks.length === 1 ? 'Activity verified.' : picks.length + ' activities verified.', run: async () => {
       try {
         await apiCall(ACTIONS.verifyItems, { items: picks.map(e => ({ bedId: e.bed.id, activity: e.name })) }, VF_TIMEOUT_MS);
       } finally { ui.vfPick = new Set(); await loadVerify({ silent: true }); }
@@ -1514,7 +1522,7 @@ function vfVerifyActivitiesSheet() {
     title: 'Verify ' + names.length + (names.length === 1 ? ' activity' : ' activities'),
     body: sumRows([['Bed', bed.id], ['Activities', names.join(', ')], ['Time taken', fmtHM(hrs)], ['Budget', steps.some(s => s.work.budgetHours != null) ? fmtHM(bud) : '']]) +
       '<p class="hint">Confirms the work was done properly. It is logged with your name and the time. It does not release the bed.</p>',
-    actions: [{ label: 'Verify', primary: true, done: names.length === 1 ? 'Activity verified.' : names.length + ' activities verified.', run: async () => {
+    actions: [{ label: 'Verify', primary: true, progress: 'Verifying ' + names.length + (names.length === 1 ? ' activity' : ' activities') + '\u2026', done: names.length === 1 ? 'Activity verified.' : names.length + ' activities verified.', run: async () => {
       await apiCall(ACTIONS.verifyItems, { items: names.map(n => ({ bedId: bed.id, activity: n })) }, VF_TIMEOUT_MS);
       ui.vfVerify = new Set(); await loadVerify({ silent: true });
     } }]
@@ -1571,7 +1579,7 @@ function vfVerifyBedSheet() {
     title: 'Verify bed ready',
     body: sumRows([['Bed', bed.id], ['Cohort', viaCohort ? bed.cohortId : ''], ['Activities', info.steps.length + ' complete or overridden'], ['Not yet verified', info.pending ? info.pending + ' (verified with the release)' : ''], ['Overridden', ovr ? String(ovr) : '']]) +
       '<p class="hint">Only verify after you have checked the bed. ' + (info.pending ? 'The ' + info.pending + ' completed ' + (info.pending === 1 ? 'activity' : 'activities') + ' awaiting verification will be signed off with your name. ' : '') + 'This releases it for the next crop and cannot be undone from this app.</p>',
-    actions: [{ label: 'Verify bed ready', primary: true, done: 'Bed verified ready.', run: async () => {
+    actions: [{ label: 'Verify bed ready', primary: true, progress: 'Verifying bed ' + bed.id + ' ready\u2026', done: 'Bed ' + bed.id + ' verified ready.', run: async () => {
       if (viaCohort) await apiCall(ACTIONS.completeCohort, { cohortId: bed.cohortId, requireVerified: true, verifyAll: true }, VF_TIMEOUT_MS); else await apiCall(ACTIONS.verifyBedReady, { bedId: bed.id, requireVerified: true, verifyAll: true }, VF_TIMEOUT_MS);
       await loadVerify({ silent: true }); ui.vfBed = null; ui.vfSkip = true; switchView('view-verify');
     } }]
@@ -1634,7 +1642,7 @@ function vfPlantSheet(bedId) {
       '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted. A greenhouse-propagated cohort needs propagation verified first (button below), or a written reason above.</p>',
     actions: [{ label: 'Propagation verified', keep: true, done: 'Propagation marked verified. Your planting date is unchanged; now press Verify planting.', run: async () => {
       await apiCall(ACTIONS.verifyPropagation, { cohortId: bed.cohortId }, VF_TIMEOUT_MS);
-    } }, { label: 'Verify planting', primary: true, done: 'Planting verified.', run: async () => {
+    } }, { label: 'Verify planting', primary: true, progress: 'Verifying planting for bed ' + bed.id + '\u2026', done: 'Planting verified.', run: async () => {
       const ppWhy = ($('#vp-pp-reason') ? $('#vp-pp-reason').value : '').trim();
       const dob = ($('#vp-date').value || '').trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) throw apiError('Enter a valid planting date (the box is empty or not a real date).', 'INPUT');
@@ -1864,19 +1872,51 @@ function renderHarvestComplete() {
 /* ==========================================================================
    SHEETS (confirmations and write actions)
    ========================================================================== */
+/* A sheet action (a.run) shows PROGRESS while the server works (the form is hidden, not removed, and a running clock shows it has not
+ * stalled), then a COMPLETED screen with an OK button that the manager presses to close. Nothing closes by itself, so the result is never
+ * missed. On an error the form comes back with the message and everything typed is still there. a.progress = text while running (default
+ * "<label>…"); a.done = completed message (no done = the sheet just closes); a.keep = stay open after (e.g. "Propagation verified"). */
+let sheetBusy = false;
 function openSheet({ title, body, actions }) {
   const dlg = $('#sheet');
-  $('#sheet-body').innerHTML = `<h3 id="sheet-title">${esc(title)}</h3>${body}<div class="form-error" id="sheet-error" role="alert" hidden></div>
+  $('#sheet-body').innerHTML = `<h3 id="sheet-title">${esc(title)}</h3>
+    <div id="sheet-main">${body}<div class="form-error" id="sheet-error" role="alert" hidden></div>
     <div class="sheet-actions">${actions.map((a, i) => `<button type="button" class="btn ${a.primary ? 'btn-primary' : ''}" data-sheet="${i}">${esc(a.label)}</button>`).join('')}
-    <button type="button" class="btn" data-sheet="cancel">Cancel</button></div>`;
+    <button type="button" class="btn" data-sheet="cancel">Cancel</button></div></div>
+    <div id="sheet-status" class="sheet-status" hidden></div>`;
+  sheetBusy = false;
+  dlg.oncancel = e => { if (sheetBusy) e.preventDefault(); };   /* Esc cannot dismiss a write that is still running */
+  const main = $('#sheet-main'), st = $('#sheet-status');
   $('#sheet-body').onclick = async e => {
     const b = e.target.closest('[data-sheet]'); if (!b) return;
-    if (b.dataset.sheet === 'cancel') { dlg.close(); return; }
+    if (b.dataset.sheet === 'cancel' || b.dataset.sheet === 'ok') { dlg.close(); return; }
+    if (sheetBusy) return;
     const a = actions[Number(b.dataset.sheet)];
-    const btns = $$('#sheet-body [data-sheet]'); btns.forEach(x => { x.disabled = true; });
+    const btns = $$('#sheet-main [data-sheet]'); btns.forEach(x => { x.disabled = true; });
     $('#sheet-error').hidden = true;
-    try { await a.run(); if (a.keep) { btns.forEach(x => { x.disabled = false; }); if (a.done) toast(a.done); } else { dlg.close(); if (a.done) toast(a.done); } }
-    catch (err) { const box = $('#sheet-error'); box.textContent = err.message || 'That did not work.'; box.hidden = false; btns.forEach(x => { x.disabled = false; }); }
+    sheetBusy = true;
+    let timer = null;
+    if (!a.keep) {
+      const msg = a.progress || (a.label + '…'), t0 = Date.now();
+      main.hidden = true; st.hidden = false;
+      const paint = () => { st.innerHTML = `<div class="st-bar" role="progressbar" aria-label="${esc(msg)}"><i></i></div><div class="st-msg" aria-live="polite">${esc(msg)}</div><p class="st-sub">${Math.round((Date.now() - t0) / 1000)} s · please keep this open until it finishes</p>`; };
+      paint(); timer = setInterval(paint, 1000);
+    }
+    try {
+      await a.run();
+      if (timer) clearInterval(timer);
+      sheetBusy = false;
+      if (a.keep) { btns.forEach(x => { x.disabled = false; }); if (a.done) toast(a.done); }
+      else if (a.done) {
+        st.innerHTML = `<div class="st-tick" aria-hidden="true">✓</div><div class="st-msg" role="status">${esc(a.done)}</div><div class="sheet-actions"><button type="button" class="btn btn-primary" data-sheet="ok" id="sheet-ok">OK</button></div>`;
+        const ok = $('#sheet-ok'); if (ok) ok.focus();
+      } else dlg.close();
+    } catch (err) {
+      if (timer) clearInterval(timer);
+      sheetBusy = false;
+      st.hidden = true; main.hidden = false;
+      const box = $('#sheet-error'); box.textContent = err.message || 'That did not work.'; box.hidden = false; btns.forEach(x => { x.disabled = false; });
+    }
   };
   dlg.showModal();
 }
