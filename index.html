@@ -1586,6 +1586,7 @@ function vfIsoDay(v) {
 }
 /* A planting can only be verified once a planting activity (DirectSeeding / Transplanting / Replanting) for this bed and cohort is COMPLETED. */
 function vfHasCompletedPlanting(bed) {
+  if (bed.plantingLogged !== undefined) return !!bed.plantingLogged;   // server flag (plantingStateForBed_)
   const mine = r => { const c = String(g(r, 'cohortId', 'cohort') || ''); return !c || !bed.cohortId || c === bed.cohortId; };
   const isPlant = r => VF_PLANT_DATE_NAMES.includes(String(g(r, 'taskType', 'activity', 'activityName') || '').trim().toLowerCase());
   if ((bed.plantRows || []).some(mine)) return true;
