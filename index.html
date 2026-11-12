@@ -1554,11 +1554,11 @@ function vfOverrideSheet() {
   openSheet({
     title: 'Override ' + names.length + (names.length === 1 ? ' step' : ' steps'),
     body: sumRows([['Bed', bed.id], ['Steps', names.join(', ')]]) +
-      '<label class="field"><span>Reason (required)</span><input class="input" id="vo-reason" maxlength="200" autocomplete="off" placeholder="e.g. no cover crop this year"></label>' +
+      '<label class="field"><span>Reason (required)</span><input class="input" id="vo-reason" autocomplete="off" placeholder="e.g. no cover crop this year"></label>' +
       '<p class="hint">The step counts as complete, and who, when and why is logged. Overriding never releases the bed; you still verify it ready.</p>',
     actions: [{ label: 'Override', primary: true, done: 'Override recorded.', run: async () => {
       const reason = ($('#vo-reason').value || '').trim();
-      if (reason.length < 5) throw apiError('Enter a reason of at least 5 characters.', 'INPUT');
+      if (!reason) throw apiError('Enter a reason for the override.', 'INPUT');
       await apiCall(ACTIONS.overridePostHarvest, { cohortId: vfKey(bed), activities: names, reason }, VF_TIMEOUT_MS);
       ui.vfSteps = new Set(); await loadVerify({ silent: true });
     } }]
@@ -1627,9 +1627,9 @@ function vfPlantSheet(bedId) {
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${startDate}"></label>` +
       `<p class="hint">${found ? 'Filled from the activity: ' + esc(found.from) + '. Change it only if the crop went in on another day.' + (found.date > today ? ' This date is after today, so the server must allow a completed planting activity scheduled for it.' : '') : 'No planting activity (finished or scheduled) was found for this bed and cohort, so the date is blank. Enter the real planting date.'}${found0 && found0.completed && found0.completed !== startDate ? ' The activity was marked complete on ' + esc(found0.completed) + '.' : ''}</p>` +
       `<div id="vp-alarm" class="vp-alarm" role="alert" hidden></div>` +
-      `<div id="vp-win" hidden><label class="field"><span>Explanation for accepting a planting date outside the allowable window (required)</span><textarea class="input" id="vp-win-reason" rows="2" maxlength="500"></textarea></label></div>` +
-      `<div id="vp-dev" hidden><label class="field"><span>Explanation for planting on a different date than planned (required)</span><textarea class="input" id="vp-dev-reason" rows="2" maxlength="500"></textarea></label></div>` +
-      `<label class="field"><span>Plant without nursery sign-off? Reason (only if propagation is not verified)</span><textarea class="input" id="vp-pp-reason" rows="2" maxlength="500"></textarea></label>` +
+      `<div id="vp-win" hidden><label class="field"><span>Explanation for accepting a planting date outside the allowable window (required)</span><textarea class="input" id="vp-win-reason" rows="2"></textarea></label></div>` +
+      `<div id="vp-dev" hidden><label class="field"><span>Explanation for planting on a different date than planned (required)</span><textarea class="input" id="vp-dev-reason" rows="2"></textarea></label></div>` +
+      `<label class="field"><span>Plant without nursery sign-off? Reason (only if propagation is not verified)</span><textarea class="input" id="vp-pp-reason" rows="2"></textarea></label>` +
       '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted. A greenhouse-propagated cohort needs propagation verified first (button below), or a written reason above.</p>',
     actions: [{ label: 'Propagation verified', keep: true, done: 'Propagation marked verified. Your planting date is unchanged; now press Verify planting.', run: async () => {
       await apiCall(ACTIONS.verifyPropagation, { cohortId: bed.cohortId }, VF_TIMEOUT_MS);
@@ -2143,7 +2143,7 @@ const mock = (() => {
       case 'override-post-harvest': {
         const key = String(p.cohortId || ''), bd = vf.beds.find(b => key === 'BED:' + b.bedId || (b.cohortId && b.cohortId === key));
         if (!bd || !bd.postHarvest) return bad('This bed is not in post-harvest.', 'NOT_IN_POST_HARVEST');
-        if (String(p.reason || '').trim().length < 5) return bad('Enter a reason of at least 5 characters.', 'OVERRIDE_REASON_REQUIRED');
+        if (!String(p.reason || '').trim()) return bad('Enter a reason.', 'OVERRIDE_REASON_REQUIRED');
         (p.activities || []).forEach(n => { const st = bd.postHarvest.steps.find(x => x.name === n); if (st) { st.status = 'COMPLETE'; st.overridden = true; } bd.postHarvest.overrides.push({ name: n, date: new Date().toISOString(), by: me.id, reason: p.reason }); });
         bd.postHarvest.readyToVerify = bd.postHarvest.steps.every(x => x.status === 'COMPLETE');
         return ok({ overridden: p.activities });
