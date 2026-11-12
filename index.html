@@ -1062,7 +1062,7 @@ async function loadVerify(opts = {}) {
       // b.reset = the FINISHED reset of a bed the manager already released (BedStatusEngine.gs). Kept so verified work stays visible.
       const rs = !pv && b.reset && Array.isArray(b.reset.steps) ? b.reset : null;
       const bed = { id: String(g(b, 'id', 'bedId') || ''), block: g(b, 'blockId') || '', status: String(g(b, 'bedStatus') || '').toUpperCase(),
-        cohortId: g(b, 'cohortId') || '', crop: g(b, 'cropName') || '', plannedDob: vfIsoDay(g(b, 'plannedDob')), cohortStatus: String(g(b, 'cohortStatus') || '').toUpperCase(), pv, rs };
+        cohortId: g(b, 'cohortId') || '', crop: g(b, 'cropName') || '', cohortStatus: String(g(b, 'cohortStatus') || '').toUpperCase(), pv, rs };
       bed.hx = vfBuildHx(b, bed, seqOf);
       bed.plantRows = listOf(b, 'activityLog').filter(r => VF_PLANT_DATE_NAMES.includes(String(g(r, 'taskType', 'activity', 'activityName') || '').trim().toLowerCase()));
       bed.vs = vsByBed[bed.id] || [];
@@ -1349,10 +1349,12 @@ function renderVerify() {
   const relPending = rel.filter(b => infos[b.id].pendingAll > 0);
   const nReady = turn.filter(b => infos[b.id].ready).length, nRe = turn.filter(b => infos[b.id].re.length).length;
   const nWait = turn.filter(b => infos[b.id].waiting).length, nNot = turn.filter(b => infos[b.id].notstarted).length;
-  const planting = v.beds.filter(b => b.cohortStatus === 'PRE_PLANTING' && b.cohortId);
+  const plantingAll = v.beds.filter(b => b.cohortStatus === 'PRE_PLANTING' && b.cohortId);
+  const planting = plantingAll.filter(vfHasCompletedPlanting);   // staged beds without a completed planting activity are not ready to verify
+  const plantingHidden = plantingAll.length - planting.length;
   const logCount = vfStepEntries().length;
   const pendAll = vfStepEntries().filter(e => e.status === 'pending');
-  const counts = { action: v.snapshot ? v.snapshot.counts.total : pendAll.length + planting.length + nReady, ready: nReady, waiting: nWait, verified: rel.length, log: logCount, notstarted: nNot, reassigned: nRe, all: turn.length };
+  const counts = { action: v.snapshot ? Math.max(0, v.snapshot.counts.total - plantingHidden) : pendAll.length + planting.length + nReady, ready: nReady, waiting: nWait, verified: rel.length, log: logCount, notstarted: nNot, reassigned: nRe, all: turn.length };
   const labels = { action: 'To verify', ready: 'Beds ready to release', waiting: 'Reset in progress', verified: 'Released beds', log: 'Activity history', notstarted: 'Reset not started', reassigned: 'Reassigned', all: 'All beds' };
   $('#verify-units').textContent = VF_TAB_HELP[ui.vfFilter] || '';
   $$('#verify-seg button').forEach(b => { const f = b.dataset.f; b.textContent = labels[f] + ' · ' + counts[f]; b.setAttribute('aria-pressed', String(f === ui.vfFilter)); });
@@ -1582,6 +1584,13 @@ function vfIsoDay(v) {
   const m = /^(\d{4}-\d{2}-\d{2})(?:$|[T ]00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?$)/.exec(String(v)); if (m) return m[1];   // a date-only value or midnight: keep the calendar day as written
   const d = toDate(v); return d ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : '';
 }
+/* A planting can only be verified once a planting activity (DirectSeeding / Transplanting / Replanting) for this bed and cohort is COMPLETED. */
+function vfHasCompletedPlanting(bed) {
+  const mine = r => { const c = String(g(r, 'cohortId', 'cohort') || ''); return !c || !bed.cohortId || c === bed.cohortId; };
+  const isPlant = r => VF_PLANT_DATE_NAMES.includes(String(g(r, 'taskType', 'activity', 'activityName') || '').trim().toLowerCase());
+  if ((bed.plantRows || []).some(mine)) return true;
+  return ((state.vf && state.vf.allSessions) || []).some(r => String(g(r, 'status') || '').toUpperCase() === 'COMPLETED' && String(g(r, 'bedId') || '') === bed.id && isPlant(r) && mine(r));
+}
 function vfPlantingDate(bed) {
   const mine = r => { const c = String(g(r, 'cohortId', 'cohort') || ''); return !c || !bed.cohortId || c === bed.cohortId; };
   const isPlant = r => VF_PLANT_DATE_NAMES.includes(String(g(r, 'taskType', 'activity', 'activityName') || '').trim().toLowerCase());
@@ -1611,16 +1620,12 @@ function vfPlantingDate(bed) {
 function vfPlantSheet(bedId) {
   const bed = state.vf.beds.find(b => b.id === bedId); if (!bed) return;
   const t = new Date(), today = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');   // local day, not UTC
-  const found0 = vfPlantingDate(bed);
-  // No planting activity on file: default to the cohort's planned DOB (never later than today), else today. The manager can still change it.
-  const planned = bed.plannedDob || '';
-  const fallback = planned && planned <= today ? { date: planned, from: 'the cohort\u2019s planned DOB (no planting activity was found)' } : { date: today, from: 'today (no planting activity was found and the planned DOB is ' + (planned ? 'in the future' : 'not set') + ')' };
-  const found = found0 || fallback, startDate = found.date;
+  const found = vfPlantingDate(bed), found0 = found, startDate = found ? found.date : '';
   openSheet({
     title: 'Verify planting',
     body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${startDate}"></label>` +
-      `<p class="hint">${found ? 'Filled from ' + esc(found.from) + '. Change it only if the crop went in on another day.' + (found.date > today ? ' This date is after today, so the server must allow a completed planting activity scheduled for it.' : '') : ''}${found0 && found0.completed && found0.completed !== startDate ? ' The activity was marked complete on ' + esc(found0.completed) + '.' : ''}</p>` +
+      `<p class="hint">${found ? 'Filled from the activity: ' + esc(found.from) + '. Change it only if the crop went in on another day.' + (found.date > today ? ' This date is after today, so the server must allow a completed planting activity scheduled for it.' : '') : 'No planting activity (finished or scheduled) was found for this bed and cohort, so the date is blank. Enter the real planting date.'}${found0 && found0.completed && found0.completed !== startDate ? ' The activity was marked complete on ' + esc(found0.completed) + '.' : ''}</p>` +
       `<div id="vp-alarm" class="vp-alarm" role="alert" hidden></div>` +
       `<div id="vp-win" hidden><label class="field"><span>Explanation for accepting a planting date outside the allowable window (required)</span><textarea class="input" id="vp-win-reason" rows="2" maxlength="500"></textarea></label></div>` +
       `<div id="vp-dev" hidden><label class="field"><span>Explanation for planting on a different date than planned (required)</span><textarea class="input" id="vp-dev-reason" rows="2" maxlength="500"></textarea></label></div>` +
