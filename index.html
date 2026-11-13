@@ -1660,7 +1660,7 @@ async function vfPlantSheet(bedId) {
       `<p class="hint" id="vp-sel">${vpSelText(startDate)}</p>` +
       `<div id="vp-alarm" class="vp-alarm" role="alert" hidden></div>` +
       `<div id="vp-win" hidden><label class="field"><span>Explanation for accepting a planting date outside the allowable window (required)</span><textarea class="input" id="vp-win-reason" rows="2"></textarea></label></div>` +
-      `<div id="vp-dev" hidden><label class="field"><span>Explanation for planting on a different date than planned (required)</span><textarea class="input" id="vp-dev-reason" rows="2"></textarea></label></div>` +
+      `<div id="vp-dev" hidden><label class="field"><span>Reason for date change (differs from selected/planned date)</span><textarea class="input" id="vp-dev-reason" rows="2"></textarea></label></div>` +
       `<label class="field"><span>Plant without nursery sign-off? Reason (only if propagation is not verified)</span><textarea class="input" id="vp-pp-reason" rows="2"></textarea></label>` +
       '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted. A greenhouse-propagated cohort needs propagation verified first (button below), or a written reason above.</p>',
     actions: [{ label: 'Propagation verified', keep: true, done: 'Propagation marked verified. Your planting date is unchanged; now press Verify planting.', run: async () => {
@@ -1672,7 +1672,7 @@ async function vfPlantSheet(bedId) {
       const val = id => { const el = $(id); return el && !el.closest('[hidden]') ? el.value.trim() : ''; };
       const winWhy = val('#vp-win-reason'), devWhy = val('#vp-dev-reason');
       if ($('#vp-win') && !$('#vp-win').hidden && !winWhy) throw apiError('This date is outside the allowable planting window. Enter your explanation in the box above.', 'INPUT');
-      if ($('#vp-dev') && !$('#vp-dev').hidden && !devWhy) throw apiError('This is not the planned date. Enter a short note in the box above.', 'INPUT');
+      if ($('#vp-dev') && !$('#vp-dev').hidden && !devWhy) throw apiError('This date differs from the selected or planned date. Enter a reason for the date change in the box above.', 'INPUT');
       try {
         await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: dob }, ppWhy ? { propagationOverrideReason: ppWhy } : {}, winWhy ? { windowOverrideReason: winWhy } : {}, devWhy ? { deviationReason: devWhy } : {}), VF_TIMEOUT_MS);
       } catch (err) {
