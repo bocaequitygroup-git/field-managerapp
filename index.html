@@ -494,7 +494,7 @@ const ACTIONS = {
   terminateCohort: 'terminate-cohort',
   // verify screen: all of these routes already exist in Code_main.gs
   todayView: 'get-manager-today-view', startSessions: 'start-sessions', overridePostHarvest: 'override-post-harvest',
-  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', checkPlanting: 'check-planting', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities', verifyItems: 'verify-items'
+  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', checkPlanting: 'check-planting', getDirectSeedReadiness: 'get-direct-seed-readiness', recordDirectSeedReadiness: 'record-direct-seed-readiness', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities', verifyItems: 'verify-items'
 };
 /* BACKEND CONTRACT (what this app sends and reads; field names are matched loosely, so findingId, Finding_ID and
    finding_id all work). Every request is POST text/plain JSON: {action, ...payload, managerId}. Every reply is
@@ -1488,13 +1488,55 @@ function renderVerifyBed() {
   }).join('');
   box.innerHTML = `<div class="sec-head"><h2 style="font-size:20px">Activities · for bed ${esc(bed.id)} · ${info.done} of ${info.steps.length} complete</h2></div>
     <p class="meta">${esc([bed.block, bed.status && titleCase(bed.status), bed.cohortId && bed.crop ? bed.crop + ' (' + bed.cohortId + ')' : ''].filter(Boolean).join(' · '))}</p>
-    <div class="group" style="padding:14px 16px">${stat}</div>${pendHtml}${next}
+    <div class="group" style="padding:14px 16px">${stat}</div><div id="ds-readiness"></div>${pendHtml}${next}
     <div class="bucket-head" style="margin-top:6px"><h3>Activities · ${info.done} of ${info.steps.length} completed</h3></div>${grp}
     <div class="bucket-head" style="margin-top:14px"><h3>Overrides</h3><span class="count">${ovr.length}</span></div>
     ${ovr.length ? '<div class="list">' + ovr.map(o => `<div class="item"><div class="item-top"><span class="item-title">${esc(o.name)}</span><span class="item-time">${esc(o.date)}</span></div><p class="sub">${esc(workerName(o.by) || o.by)}: ${esc(o.reason)}</p></div>`).join('') + '</div>' : '<p class="sub">None. A manager can skip a step with a written reason.</p>'}
     <div class="bucket-head" style="margin-top:14px"><h3>Dispatch · ${info.assigned} of ${info.left} remaining assigned</h3></div>
     ${sessHtml}${info.hx.length ? vfHxSection(bed) : ''}`;
   syncVfBar(); syncPickBar();
+  loadDirectSeedReadiness(bed);
+}
+/* ---- Direct-seed readiness (ACT_007): five checkpoints on this cohort and bed. Greenhouse sign-off is untouched. ---- */
+const DS_CHECK_DEFS = [
+  { key: 'soilTilth', label: 'Soil Tilth', required: 'Suitable prepared seedbed' },
+  { key: 'seederSetup', label: 'Seeder Setup', required: 'Correct crop-specific equipment calibration' },
+  { key: 'waterAccess', label: 'Water Access', required: 'Irrigation ready for immediate post-sowing use' },
+  { key: 'qrMarker', label: 'QR Marker', required: 'Physical plaque readable and resolves to correct bed' }
+];
+async function loadDirectSeedReadiness(bed) {
+  const host = $('#ds-readiness'); if (!host || !bed || !bed.cohortId || !bed.id) return;
+  let s = null;
+  try { s = await apiCall(ACTIONS.getDirectSeedReadiness, { cohortId: bed.cohortId, bedId: bed.id }); } catch (e) { host.innerHTML = ''; return; }
+  if (!host.isConnected || !s || s.applies === false || !Array.isArray(s.checks)) { host.innerHTML = ''; return; }
+  renderDirectSeedPanel(host, bed, s);
+}
+function renderDirectSeedPanel(host, bed, s) {
+  const byKey = {};
+  s.checks.forEach(c => { byKey[c.key] = c; });
+  const chipFor = o => o === 'PASS' ? '<span class="chip">Passed</span>' : o === 'FAIL' ? '<span class="chip high">Failed</span>' : '<span class="chip med">Not verified</span>';
+  const bedRow = byKey.bedStatus ? `<div class="item"><div class="vrow"><span style="width:28px;flex:none"></span><div class="vbody"><div class="item-top"><span class="item-title">Bed Status</span></div><div class="chips">${chipFor(byKey.bedStatus.outcome)}</div><p class="sub">System confirms correct RESERVED bed/cohort (not typed)</p></div></div></div>` : '';
+  const rows = DS_CHECK_DEFS.map(d => {
+    const c = byKey[d.key] || {}, checked = c.outcome === 'PASS';
+    return `<div class="item"><div class="vrow"><input type="checkbox" data-act="ds-check" data-key="${d.key}" ${checked ? 'checked' : ''} aria-label="Confirm ${esc(d.label)} for bed ${esc(bed.id)}"><div class="vbody"><div class="item-top"><span class="item-title">${esc(d.label)}</span></div><div class="chips">${chipFor(c.outcome)}</div><p class="sub">${esc(d.required)}</p></div></div></div>`;
+  }).join('');
+  const who = s.verifiedBy ? `<p class="sub">Last recorded by ${esc(workerName(s.verifiedBy) || s.verifiedBy)}${s.verifiedAt ? ' on ' + esc(fmtDateTime(s.verifiedAt)) : ''}.</p>` : '<p class="sub">Not recorded yet.</p>';
+  host.innerHTML = `<div class="bucket-head" style="margin-top:6px"><h3>Direct-seed readiness</h3><span class="count">${s.complete ? 'Complete' : 'Incomplete'}</span></div>
+    <div class="group" style="padding:10px 16px"><p class="sub">Bed ${esc(bed.id)} · cohort ${esc(s.cohortId)}${s.cropId ? ' · ' + esc(s.cropId) : ''}. ACT_007 Direct Seeding cannot start on this bed until all five checks pass.</p>
+      ${bedRow}${rows}${who}
+      <div class="vbar"><button class="btn btn-primary" type="button" data-act="ds-save">Save readiness</button></div>
+      <p class="hint" id="ds-hint" style="margin:0"></p></div>`;
+  host.querySelector('[data-act="ds-save"]').addEventListener('click', async () => {
+    const checks = {};
+    host.querySelectorAll('[data-act="ds-check"]').forEach(cb => { checks[cb.dataset.key] = cb.checked; });
+    const hint = host.querySelector('#ds-hint');
+    try {
+      const res = await apiCall(ACTIONS.recordDirectSeedReadiness, { cohortId: bed.cohortId, bedId: bed.id, checks });
+      toast(res && res.complete ? 'Direct-seed readiness complete for bed ' + bed.id + '.' : 'Direct-seed readiness saved. Some checks are still open.');
+      const fresh = await apiCall(ACTIONS.getDirectSeedReadiness, { cohortId: bed.cohortId, bedId: bed.id });
+      if (fresh && fresh.applies !== false && Array.isArray(fresh.checks)) renderDirectSeedPanel(host, bed, fresh);
+    } catch (err) { if (hint) hint.textContent = err.message || 'Could not save direct-seed readiness.'; }
+  });
 }
 /* One bed's activity-log history: what still needs signing off (tickable where the server allows it), then every entry. */
 function vfHxSection(bed) {
