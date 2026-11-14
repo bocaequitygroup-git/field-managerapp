@@ -1665,7 +1665,9 @@ async function vfPlantSheet(bedId) {
     actions: [{ label: 'Verify planting', primary: true, progress: 'Verifying planting for bed ' + bed.id + '\u2026', done: 'Planting verified.', run: async () => {
       const dob = ($('#vp-date').value || '').trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) throw apiError('Enter a valid planting date (the box is empty or not a real date).', 'INPUT');
-      const val = id => { const el = $(id); return el && !el.closest('[hidden]') ? el.value.trim() : ''; };
+      /* Read the typed text directly. The sheet hides its whole body while an action runs, so a check for hidden ancestors returned '' and the
+         note was reported as missing even when it was typed. Whether a box applies is decided by its own wrapper (#vp-win / #vp-dev). */
+      const val = id => { const el = $(id); return el ? el.value.trim() : ''; };
       const winWhy = val('#vp-win-reason'), devWhy = val('#vp-dev-reason');
       if ($('#vp-win') && !$('#vp-win').hidden && !winWhy) throw apiError('This date is outside the allowable planting window. Enter your explanation in the box above.', 'INPUT');
       if ($('#vp-dev') && !$('#vp-dev').hidden && !devWhy) throw apiError('This date differs from the selected or planned date. Enter a reason for the date change in the box above.', 'INPUT');
