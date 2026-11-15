@@ -1467,11 +1467,6 @@ function renderVerifyBed() {
     ${assignableLeft ? `<p>${vfCohortTurnover(bed) ? 'Next step: <b>' + esc(pv.nextStep) + '</b>.' : 'Assign <b>' + assignableLeft + '</b> required ' + (assignableLeft === 1 ? 'activity' : 'activities') + '.'} Tick the activities, tick the workers, press Assign.</p>
       <p class="sub" style="margin:10px 0 4px">Workers</p>
       <div>${v.workers.map(x => `<label class="vrow" style="padding:6px 0;align-items:center"><input type="checkbox" data-act="vf-worker" data-id="${esc(x.id)}" ${ui.vfWorkers.has(x.id) ? 'checked' : ''}><span class="vbody">${esc(x.name)}</span></label>`).join('') || '<p class="sub">No workers are available to assign.</p>'}</div>
-      <div id="vf-seed" class="group" style="padding:10px 12px;margin-top:10px" hidden>
-        <p class="sub" style="margin:0 0 6px"><b>DirectSeeding</b> needs the seed lot. Enter it once here; the worker sees it read-only on the task.</p>
-        <label class="field"><span>Seed lot ID</span><input class="input" id="vf-seed-lot" autocomplete="off"></label>
-        <label class="field"><span>Germination %</span><input class="input" id="vf-seed-germ" type="number" min="0" max="100" step="0.1" inputmode="decimal"></label>
-      </div>
       <div class="vbar" style="margin-top:10px"><button class="btn btn-primary" id="vf-assign" data-act="vf-assign" type="button" disabled>Assign</button>
         <button class="btn" id="vf-override" data-act="vf-override" type="button" disabled>Override…</button></div>
       <p class="hint" id="vf-hint" style="margin:0"></p>` : (w ? '' : '<p>Nothing can be assigned right now.</p>')}</div>`;
@@ -1590,7 +1585,6 @@ function syncVfBar() {
   const bed = state.vf.beds.find(b => b.id === ui.vfBed), st = bed ? vfSteps(bed) : [];
   const n = ui.vfSteps.size, m = ui.vfWorkers.size, nA = [...ui.vfSteps].filter(x => { const q = st.find(y => y.name === x); return q && vfAssignable(bed, q); }).length;
   a.disabled = !(nA && m); o.disabled = !n;
-  const sd = $('#vf-seed'); if (sd) sd.hidden = !ui.vfSteps.has('DirectSeeding');
   a.textContent = nA && m ? `Assign (${nA} \u00d7 ${m})` : 'Assign';
   h.textContent = !n ? 'Tick at least one activity.' : !nA ? 'Those activities can only be overridden right now.' : !m ? 'Now tick at least one worker.' : '';
 }
@@ -1598,25 +1592,15 @@ function openVerifyBed(id) { ui.vfBed = id; ui.vfSkip = true; ui.vfSteps = new S
 const VF_ERR = { POST_HARVEST_OUT_OF_SEQUENCE: 'not available yet (already done, an automatic wait, or its seasonal window is not open)', BED_NOT_ELIGIBLE_FOR_POST_HARVEST: 'this bed is not eligible for post-harvest work',
   POST_HARVEST_NOT_APPLICABLE: 'not required for this crop', STAGE_NOT_ALLOWED: 'not allowed at this stage',
   BED_NOT_RELEASED: 'this bed has not been released: finish the reset and Verify Bed Ready first', BED_TURNOVER_INCOMPLETE: 'this bed still has unfinished reset work',
-  BED_NOT_PLANTABLE: 'planting is only allowed on an Available or Reserved bed',
-  DIRECT_SEED_SEED_LOT_MISSING: 'enter the seed lot ID for DirectSeeding', DIRECT_SEED_GERMINATION_INVALID: 'germination % must be from 0 to 100',
-  DIRECT_SEED_MANAGER_DISPATCH_REQUIRED: 'DirectSeeding must be assigned by a manager', DIRECT_SEED_BARE_SOIL_REQUIRED: 'plastic mulch is not laid on a direct-seed bed',
-  DIRECT_SEED_PREP_NOT_COMPLETE: 'pre-seed steps ACT_060-062 are not complete on this bed' };
+  BED_NOT_PLANTABLE: 'planting is only allowed on an Available or Reserved bed' };
 async function vfAssign() {
   const bed = state.vf.beds.find(b => b.id === ui.vfBed); if (!bed || !ui.vfSteps.size || !ui.vfWorkers.size) return;
   const names = [...ui.vfSteps].filter(n => { const s = vfSteps(bed).find(x => x.name === n); return s && vfAssignable(bed, s); });
   if (!names.length) { toast('Those activities cannot be assigned right now.'); return; }
-  let seedLot = null;
-  if (names.includes('DirectSeeding')) {
-    const lotEl = $('#vf-seed-lot'), pctEl = $('#vf-seed-germ');
-    const lotId = String((lotEl && lotEl.value) || '').trim(), pctRaw = String((pctEl && pctEl.value) || '').trim(), pct = Number(pctRaw);
-    if (!lotId || pctRaw === '' || !isFinite(pct) || pct < 0 || pct > 100) { toast('Enter the seed lot ID and a germination % from 0 to 100 before assigning DirectSeeding.'); return; }
-    seedLot = { lotId: lotId, germinationPct: pct };
-  }
   runProgress({
     title: 'Assign activities', progress: 'Assigning ' + names.length + (names.length === 1 ? ' activity' : ' activities') + '\u2026 (step 1 of 2)',
     run: async (step) => {
-      const r = await apiCall(ACTIONS.startSessions, { bedId: bed.id, assignments: names.map(a => (a === 'DirectSeeding' && seedLot) ? { activity: a, workerIds: [...ui.vfWorkers], seedLot: seedLot } : { activity: a, workerIds: [...ui.vfWorkers] }) }, VF_TIMEOUT_MS);
+      const r = await apiCall(ACTIONS.startSessions, { bedId: bed.id, assignments: names.map(a => ({ activity: a, workerIds: [...ui.vfWorkers] })) }, VF_TIMEOUT_MS);
       const created = listOf(r, 'created'), failed = listOf(r, 'failed'), skipped = listOf(r, 'skipped');
       const why = failed.slice(0, 3).map(f => (g(f, 'activity') || '') + ': ' + (VF_ERR[g(f, 'errorCode', 'code')] || g(f, 'errorCode', 'code') || 'refused')).join('; ');
       if (created.length) { ui.vfSteps = new Set(); step('Refreshing the verification list\u2026 (step 2 of 2)'); await loadVerify({ silent: true }); } else syncVfBar();
