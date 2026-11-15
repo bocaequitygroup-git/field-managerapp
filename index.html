@@ -1700,7 +1700,10 @@ async function vfPlantSheet(bedId) {
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${startDate}"></label>` +
       `<p class="hint">${startDate ? 'Filled from ' + esc(startFrom) + '. Change it only if the crop went in on another day.' : 'No planting date that has already arrived was found for this bed and cohort, so the box is blank. Enter the real planting date once the crop is in the ground.'}${found0 && found0.completed && found0.completed !== startDate ? ' The activity was marked complete on ' + esc(found0.completed) + '.' : ''}</p>` +
       `<p class="hint" id="vp-sel">${vpSelText(startDate)}</p>` +
+      `<label class="field"><span>Verification date</span><input class="input" id="vp-vdate" type="date" value="${startDate}" min="${startDate}"></label>` +
+      `<p class="hint">Defaults to the actual planting date. Any date on or after it is accepted, so a late or historical verification is not blocked. The system separately records the exact time you submit this.</p>` +
       `<div id="vp-alarm" class="vp-alarm" role="alert" hidden></div>` +
+      `<div id="vp-ov" hidden><label class="field"><span>Manager override: explain why this rule should not apply (any wording, required)</span><textarea class="input" id="vp-ov-reason" rows="2"></textarea></label></div>` +
       `<div id="vp-win" hidden><label class="field"><span>Explanation for accepting a planting date outside the allowable window (required)</span><textarea class="input" id="vp-win-reason" rows="2"></textarea></label></div>` +
       `<div id="vp-dev" hidden><label class="field"><span>Reason for date change (differs from selected/planned date)</span><textarea class="input" id="vp-dev-reason" rows="2"></textarea></label></div>` +
       '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted.</p>',
@@ -1710,11 +1713,15 @@ async function vfPlantSheet(bedId) {
       /* Read the typed text directly. The sheet hides its whole body while an action runs, so a check for hidden ancestors returned '' and the
          note was reported as missing even when it was typed. Whether a box applies is decided by its own wrapper (#vp-win / #vp-dev). */
       const val = id => { const el = $(id); return el ? el.value.trim() : ''; };
-      const winWhy = val('#vp-win-reason'), devWhy = val('#vp-dev-reason');
+      const winWhy = val('#vp-win-reason'), devWhy = val('#vp-dev-reason'), ovWhy = val('#vp-ov-reason');
+      const vdate = val('#vp-vdate') || dob;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(vdate)) throw apiError('That is not a valid verification date.', 'INPUT');
+      if (vdate < dob) throw apiError('The verification date cannot be before the actual planting date (' + dob + ').', 'INPUT');
+      if (dob > today && !ovWhy) { $('#vp-ov').hidden = false; throw apiError('That planting date is in the future. Enter an explanation in the override box above to continue, then press Verify planting again.', 'INPUT'); }
       if ($('#vp-win') && !$('#vp-win').hidden && !winWhy) throw apiError('This date is outside the allowable planting window. Enter your explanation in the box above.', 'INPUT');
       if ($('#vp-dev') && !$('#vp-dev').hidden && !devWhy) throw apiError('This date differs from the selected or planned date. Enter a reason for the date change in the box above.', 'INPUT');
       try {
-        await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: dob }, winWhy ? { windowOverrideReason: winWhy } : {}, devWhy ? { deviationReason: devWhy } : {}), VF_TIMEOUT_MS);
+        await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: dob, verificationDate: vdate }, winWhy ? { windowOverrideReason: winWhy } : {}, devWhy ? { deviationReason: devWhy } : {}, (ovWhy && !($('#vp-ov').hidden)) ? { overrideReason: ovWhy } : {}), VF_TIMEOUT_MS);
       } catch (err) {
         const c = String(err.code || ''), m = String(err.message || '');
         if (c === 'TIMEOUT') {   // the server may have finished after the app stopped waiting: look before asking the manager to retry
@@ -1722,6 +1729,7 @@ async function vfPlantSheet(bedId) {
           err.message = 'The server is taking longer than usual and the planting is not saved yet. Press Verify planting again.';
         }
         if (c === 'PLANTING_OUTSIDE_WINDOW' || /allowable planting window|must accept it with a written/i.test(m)) { $('#vp-win').hidden = false; err.message = m + ' Enter your explanation in the box above, then press Verify planting again.'; }
+        else if (c === 'FUTURE_ACTUAL_DOB' || c === 'PLANTING_ACTIVITY_NOT_DONE') { $('#vp-ov').hidden = false; err.message = m + ' To continue anyway, enter your explanation in the override box above, then press Verify planting again.'; }
         else if (c === 'DEVIATION_REASON_REQUIRED') { $('#vp-dev').hidden = false; err.message = m + ' Enter your explanation in the box above, then press Verify planting again.'; }
         throw err;
       }
@@ -1753,6 +1761,9 @@ async function vfPlantSheet(bedId) {
     win.hidden = p.state !== 'OUTSIDE_NEEDS_NOTE'; dev.hidden = p.state !== 'DIFFERENT_IN_WINDOW' && p.state !== 'SELECTION_CHANGED';
   };
   const dateEl = $('#vp-date');
+  const vpVdSync = () => { const de = $('#vp-date'), ve = $('#vp-vdate'); if (!de || !ve) return; ve.min = de.value || ''; if (!ve.dataset.touched) ve.value = de.value || ''; else if (ve.value && de.value && ve.value < de.value) ve.value = de.value; const ov = $('#vp-ov'); if (ov && de.value && de.value > today) ov.hidden = false; };
+  const veEl = $('#vp-vdate'); if (veEl) veEl.addEventListener('input', () => { veEl.dataset.touched = '1'; });
+  if (dateEl) { dateEl.addEventListener('change', vpVdSync); dateEl.addEventListener('input', vpVdSync); }
   const vpSelUpd = () => { const el = $('#vp-sel'), de = $('#vp-date'); if (el && de) el.innerHTML = vpSelText((de.value || '').trim()); };
   if (dateEl) { dateEl.addEventListener('change', vpCheck); dateEl.addEventListener('input', vpCheck); dateEl.addEventListener('change', vpSelUpd); dateEl.addEventListener('input', vpSelUpd); }
   vpCheck();
