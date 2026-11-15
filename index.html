@@ -449,6 +449,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
 </main>
 
 <dialog class="sheet" id="sheet" aria-labelledby="sheet-title"><div class="sheet-in" id="sheet-body"></div></dialog>
+<dialog class="sheet" id="di-dlg" aria-label="Planting date impact"><div class="sheet-in" id="di-body"></div></dialog>
 <dialog class="sheet" id="scanner" aria-label="Camera scanner">
   <div class="sheet-in">
     <h3>Scan a bed QR code</h3>
@@ -494,7 +495,8 @@ const ACTIONS = {
   terminateCohort: 'terminate-cohort',
   // verify screen: all of these routes already exist in Code_main.gs
   todayView: 'get-manager-today-view', startSessions: 'start-sessions', overridePostHarvest: 'override-post-harvest',
-  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', checkPlanting: 'check-planting', getDirectSeedReadiness: 'get-direct-seed-readiness', recordDirectSeedReadiness: 'record-direct-seed-readiness', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities', verifyItems: 'verify-items'
+  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', checkPlanting: 'check-planting', getDirectSeedReadiness: 'get-direct-seed-readiness', recordDirectSeedReadiness: 'record-direct-seed-readiness', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities', verifyItems: 'verify-items',
+  getPlantingSelection: 'get-planting-selection', setPlantingSelection: 'set-planting-selection', authorizeWindow: 'authorize-planting-window'   // date-impact pop-up (all exist in Code_main.gs)
 };
 /* BACKEND CONTRACT (what this app sends and reads; field names are matched loosely, so findingId, Finding_ID and
    finding_id all work). Every request is POST text/plain JSON: {action, ...payload, managerId}. Every reply is
@@ -1329,10 +1331,11 @@ function vfPickSheet() {
     title: 'Verify ' + picks.length + (picks.length === 1 ? ' activity' : ' activities'),
     body: sumRows(Object.values(byBed).map(g => ['Bed ' + g.bed.id, g.names.map(vfActLabel).join(', ')])) +
       '<p class="hint">Confirms the work was done properly. It is logged with your name and the time. It does not release any bed.</p>',
-    actions: [{ label: 'Verify', primary: true, progress: 'Verifying ' + picks.length + (picks.length === 1 ? ' activity' : ' activities') + '\u2026', done: picks.length === 1 ? 'Activity verified.' : picks.length + ' activities verified.', run: async () => {
+    actions: [{ label: 'Verify', primary: true, progress: 'Verifying ' + picks.length + (picks.length === 1 ? ' activity' : ' activities') + '\u2026', done: picks.length === 1 ? 'Activity verified.' : picks.length + ' activities verified.', run: async (step) => {
+      step('Saving your sign-off\u2026 (step 1 of 2)');
       try {
         await apiCall(ACTIONS.verifyItems, { items: picks.map(e => ({ bedId: e.bed.id, activity: e.name })) }, VF_TIMEOUT_MS);
-      } finally { ui.vfPick = new Set(); await loadVerify({ silent: true }); }
+      } finally { ui.vfPick = new Set(); step('Refreshing the verification list\u2026 (step 2 of 2)'); await loadVerify({ silent: true }); }
     } }]
   });
 }
@@ -1530,12 +1533,17 @@ function renderDirectSeedPanel(host, bed, s) {
     const checks = {};
     host.querySelectorAll('[data-act="ds-check"]').forEach(cb => { checks[cb.dataset.key] = cb.checked; });
     const hint = host.querySelector('#ds-hint');
-    try {
-      const res = await apiCall(ACTIONS.recordDirectSeedReadiness, { cohortId: bed.cohortId, bedId: bed.id, checks });
-      toast(res && res.complete ? 'Direct-seed readiness complete for bed ' + bed.id + '.' : 'Direct-seed readiness saved. Some checks are still open.');
-      const fresh = await apiCall(ACTIONS.getDirectSeedReadiness, { cohortId: bed.cohortId, bedId: bed.id });
-      if (fresh && fresh.applies !== false && Array.isArray(fresh.checks)) renderDirectSeedPanel(host, bed, fresh);
-    } catch (err) { if (hint) hint.textContent = err.message || 'Could not save direct-seed readiness.'; }
+    runProgress({
+      title: 'Direct-seed readiness', progress: 'Saving readiness for bed ' + bed.id + '\u2026',
+      run: async (step) => {
+        const res = await apiCall(ACTIONS.recordDirectSeedReadiness, { cohortId: bed.cohortId, bedId: bed.id, checks });
+        step('Reloading the checklist\u2026');
+        const fresh = await apiCall(ACTIONS.getDirectSeedReadiness, { cohortId: bed.cohortId, bedId: bed.id });
+        if (fresh && fresh.applies !== false && Array.isArray(fresh.checks)) renderDirectSeedPanel(host, bed, fresh);
+        return res;
+      },
+      done: res => res && res.complete ? 'Direct-seed readiness complete for bed ' + bed.id + '.' : 'Direct-seed readiness saved. Some checks are still open.'
+    });
   });
 }
 /* One bed's activity-log history: what still needs signing off (tickable where the server allows it), then every entry. */
@@ -1564,9 +1572,10 @@ function vfVerifyActivitiesSheet() {
     title: 'Verify ' + names.length + (names.length === 1 ? ' activity' : ' activities'),
     body: sumRows([['Bed', bed.id], ['Activities', names.join(', ')], ['Time taken', fmtHM(hrs)], ['Budget', steps.some(s => s.work.budgetHours != null) ? fmtHM(bud) : '']]) +
       '<p class="hint">Confirms the work was done properly. It is logged with your name and the time. It does not release the bed.</p>',
-    actions: [{ label: 'Verify', primary: true, progress: 'Verifying ' + names.length + (names.length === 1 ? ' activity' : ' activities') + '\u2026', done: names.length === 1 ? 'Activity verified.' : names.length + ' activities verified.', run: async () => {
+    actions: [{ label: 'Verify', primary: true, progress: 'Verifying ' + names.length + (names.length === 1 ? ' activity' : ' activities') + '\u2026', done: names.length === 1 ? 'Activity verified.' : names.length + ' activities verified.', run: async (step) => {
+      step('Saving your sign-off\u2026 (step 1 of 2)');
       await apiCall(ACTIONS.verifyItems, { items: names.map(n => ({ bedId: bed.id, activity: n })) }, VF_TIMEOUT_MS);
-      ui.vfVerify = new Set(); await loadVerify({ silent: true });
+      ui.vfVerify = new Set(); step('Refreshing the verification list\u2026 (step 2 of 2)'); await loadVerify({ silent: true });
     } }]
   });
 }
@@ -1588,14 +1597,17 @@ async function vfAssign() {
   const bed = state.vf.beds.find(b => b.id === ui.vfBed); if (!bed || !ui.vfSteps.size || !ui.vfWorkers.size) return;
   const names = [...ui.vfSteps].filter(n => { const s = vfSteps(bed).find(x => x.name === n); return s && vfAssignable(bed, s); });
   if (!names.length) { toast('Those activities cannot be assigned right now.'); return; }
-  const btn = $('#vf-assign'); btn.disabled = true; btn.textContent = 'Assigning…';
-  try {
-    const r = await apiCall(ACTIONS.startSessions, { bedId: bed.id, assignments: names.map(a => ({ activity: a, workerIds: [...ui.vfWorkers] })) }, VF_TIMEOUT_MS);
-    const created = listOf(r, 'created'), failed = listOf(r, 'failed'), skipped = listOf(r, 'skipped');
-    const why = failed.slice(0, 3).map(f => (g(f, 'activity') || '') + ': ' + (VF_ERR[g(f, 'errorCode', 'code')] || g(f, 'errorCode', 'code') || 'refused')).join('; ');
-    toast(created.length + ' assigned' + (skipped.length ? ', ' + skipped.length + ' already open' : '') + (failed.length ? ', ' + failed.length + ' refused (' + why + ')' : '') + '.');
-    if (created.length) { ui.vfSteps = new Set(); await loadVerify({ silent: true }); } else syncVfBar();
-  } catch (err) { toast(err.message); syncVfBar(); }
+  runProgress({
+    title: 'Assign activities', progress: 'Assigning ' + names.length + (names.length === 1 ? ' activity' : ' activities') + '\u2026 (step 1 of 2)',
+    run: async (step) => {
+      const r = await apiCall(ACTIONS.startSessions, { bedId: bed.id, assignments: names.map(a => ({ activity: a, workerIds: [...ui.vfWorkers] })) }, VF_TIMEOUT_MS);
+      const created = listOf(r, 'created'), failed = listOf(r, 'failed'), skipped = listOf(r, 'skipped');
+      const why = failed.slice(0, 3).map(f => (g(f, 'activity') || '') + ': ' + (VF_ERR[g(f, 'errorCode', 'code')] || g(f, 'errorCode', 'code') || 'refused')).join('; ');
+      if (created.length) { ui.vfSteps = new Set(); step('Refreshing the verification list\u2026 (step 2 of 2)'); await loadVerify({ silent: true }); } else syncVfBar();
+      return created.length + ' assigned' + (skipped.length ? ', ' + skipped.length + ' already open' : '') + (failed.length ? ', ' + failed.length + ' refused (' + why + ')' : '') + '.';
+    },
+    done: msg => msg
+  });
 }
 function vfOverrideSheet() {
   const bed = state.vf.beds.find(b => b.id === ui.vfBed); if (!bed || !ui.vfSteps.size) return;
@@ -1606,7 +1618,7 @@ function vfOverrideSheet() {
     body: sumRows([['Bed', bed.id], ['Steps', names.join(', ')]]) +
       '<label class="field"><span>Reason (required)</span><input class="input" id="vo-reason" autocomplete="off" placeholder="e.g. no cover crop this year"></label>' +
       '<p class="hint">The step counts as complete, and who, when and why is logged. Overriding never releases the bed; you still verify it ready.</p>',
-    actions: [{ label: 'Override', primary: true, done: 'Override recorded.', run: async () => {
+    actions: [{ label: 'Override', primary: true, progress: 'Recording the override\u2026', done: 'Override recorded.', run: async () => {
       const reason = ($('#vo-reason').value || '').trim();
       if (!reason) throw apiError('Enter a reason for the override.', 'INPUT');
       await apiCall(ACTIONS.overridePostHarvest, { cohortId: vfKey(bed), activities: names, reason }, VF_TIMEOUT_MS);
@@ -1621,9 +1633,10 @@ function vfVerifyBedSheet() {
     title: 'Verify bed ready',
     body: sumRows([['Bed', bed.id], ['Cohort', viaCohort ? bed.cohortId : ''], ['Activities', info.steps.length + ' complete or overridden'], ['Not yet verified', info.pending ? info.pending + ' (verified with the release)' : ''], ['Overridden', ovr ? String(ovr) : '']]) +
       '<p class="hint">Only verify after you have checked the bed. ' + (info.pending ? 'The ' + info.pending + ' completed ' + (info.pending === 1 ? 'activity' : 'activities') + ' awaiting verification will be signed off with your name. ' : '') + 'This releases it for the next crop and cannot be undone from this app.</p>',
-    actions: [{ label: 'Verify bed ready', primary: true, progress: 'Verifying bed ' + bed.id + ' ready\u2026', done: 'Bed ' + bed.id + ' verified ready.', run: async () => {
+    actions: [{ label: 'Verify bed ready', primary: true, progress: 'Verifying bed ' + bed.id + ' ready\u2026', done: 'Bed ' + bed.id + ' verified ready.', run: async (step) => {
+      step('Signing off and releasing the bed\u2026 (step 1 of 2)');
       if (viaCohort) await apiCall(ACTIONS.completeCohort, { cohortId: bed.cohortId, requireVerified: true, verifyAll: true }, VF_TIMEOUT_MS); else await apiCall(ACTIONS.verifyBedReady, { bedId: bed.id, requireVerified: true, verifyAll: true }, VF_TIMEOUT_MS);
-      await loadVerify({ silent: true }); ui.vfBed = null; ui.vfSkip = true; switchView('view-verify');
+      step('Refreshing the verification list\u2026 (step 2 of 2)'); await loadVerify({ silent: true }); ui.vfBed = null; ui.vfSkip = true; switchView('view-verify');
     } }]
   });
 }
@@ -1654,13 +1667,13 @@ function vfPlantingDate(bed) {
   const done = doneLog.concat(doneSessions).sort((a, b) => ts(b) - ts(a));
   for (const r of done) {
     const name = g(r, 'taskType', 'activity', 'activityName') || 'planting';
-    // 1. The date the manager scheduled for the planting (the session row, or the session a log row came from).
+    // 1. The day the planting activity was COMPLETED is the actual planting day.
     const sess = sessById[String(g(r, 'sessionId', 'id') || '')] || r;
     const sched = vfIsoDay(g(sess, 'scheduledDate'));
     const doneDay = vfIsoDay(g(r, 'endTime', 'startTime'));
-    if (sched) return { date: sched, from: 'the date the ' + name + ' activity was scheduled for', scheduled: sched, completed: doneDay };
-    // 2. No scheduled date on file: the day the activity was completed.
-    if (doneDay) return { date: doneDay, from: 'the day the ' + name + ' activity was completed' };
+    if (doneDay) return { date: doneDay, from: 'the day the ' + name + ' activity was completed', scheduled: sched, completed: doneDay };
+    // 2. No completion time on file: fall back to the day it was scheduled for.
+    if (sched) return { date: sched, from: 'the date the ' + name + ' activity was scheduled for', scheduled: sched, completed: '' };
   }
   // 3. No finished planting anywhere: use the day a planting activity for this cohort is scheduled for (assigned / running, not cancelled).
   const open = sessions.filter(r => !/^(COMPLETED|CANCELLED|CANCELED)/.test(String(g(r, 'status') || '').toUpperCase()) && String(g(r, 'bedId') || '') === bed.id && isPlant(r) && mine(r) && vfIsoDay(g(r, 'scheduledDate')));
@@ -1683,23 +1696,31 @@ async function vfPlantSheet(bedId) {
   else if (selDate && selDate <= today) { startDate = selDate; startFrom = 'the date you selected when you assigned the planting'; }
   else if (found && found.date && found.date <= today) { startDate = found.date; startFrom = found.from; }
   else if (found && found.completed && found.completed <= today) { startDate = found.completed; startFrom = 'the day the planting activity was completed'; }
-  const vpSelText = dob => {
-    if (!selDate) return '';
-    let s = 'You selected <b>' + esc(selDate) + '</b> when you assigned this planting' + (sel.selectedByName ? ' (' + esc(sel.selectedByName) + ')' : '') + (sel.basis === 'SESSION_FALLBACK' ? ' [from the task schedule; no selection record yet]' : '') + '.';
-    if (sel.exceptionAccepted) s += ' It was outside the allowable window and accepted' + (sel.exceptionReason ? ': ' + esc(sel.exceptionReason) : '') + '.';
-    if (selDate > today) s += ' <b>That day has not arrived yet.</b>';
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dob || '')) {
-      const n = Math.round((Date.UTC(+dob.slice(0, 4), +dob.slice(5, 7) - 1, +dob.slice(8, 10)) - Date.UTC(+selDate.slice(0, 4), +selDate.slice(5, 7) - 1, +selDate.slice(8, 10))) / 86400000);
-      s += n ? ' The date being verified is ' + Math.abs(n) + ' day' + (Math.abs(n) === 1 ? '' : 's') + (n > 0 ? ' after' : ' before') + ' it.' : ' The date being verified matches it.';
+  /* ONE dates block, four fixed names: Planned DOB, Manager-selected planting date (reference only), ACTUAL planting date (what is verified), Verification date. */
+  const vpIsoOk = x => /^\d{4}-\d{2}-\d{2}$/.test(x || '');
+  const vpDiff = (a, b) => Math.round((Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10)) - Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10))) / 86400000);
+  const vpRel = (ref, date, what) => { if (!vpIsoOk(ref) || !vpIsoOk(date)) return ''; const n = vpDiff(ref, date), k = Math.abs(n); return n ? k + ' day' + (k === 1 ? '' : 's') + (n > 0 ? ' later' : ' earlier') + ' than ' + what : 'same day as ' + what; };
+  const vpDates = (dob, vdate) => {
+    const planned = (sel && sel.plannedDob) || '', row = (k, v, sub, strong) => `<div><span${strong ? ' style="color:var(--ink);font-weight:800"' : ''}>${esc(k)}</span><p style="margin:0;text-align:right"><b>${v}</b>${sub ? '<small style="display:block;font-weight:400;color:var(--muted)">' + sub + '</small>' : ''}</p></div>`;
+    let selSub = '';
+    if (selDate) {
+      selSub = 'Chosen when the planting was assigned' + (sel.selectedByName ? ' by ' + esc(sel.selectedByName) : '') + (sel.basis === 'SESSION_FALLBACK' ? ' (taken from the task schedule; no selection record yet)' : '') + '.';
+      if (sel.exceptionAccepted) selSub += ' Outside the allowable window and accepted' + (sel.exceptionReason ? ': ' + esc(sel.exceptionReason) : '') + '.';
+      if (selDate > today) selSub += ' This day has not arrived yet; it is a reference only and is never used as the actual date.';
     }
-    return s;
+    const act = [];
+    if (vpIsoOk(dob)) { if (planned) act.push(vpRel(planned, dob, 'the planned DOB')); if (selDate) act.push(vpRel(selDate, dob, 'the manager-selected date')); if (dob > today) act.push('<b>In the future.</b> The crop cannot be in the ground yet; verifying needs a manager override explanation.'); }
+    const vd = vpIsoOk(vdate) && vpIsoOk(dob) && vdate < dob ? '<b>Cannot be before the actual planting date.</b>' : (vpIsoOk(vdate) && vpIsoOk(dob) && vdate > dob ? 'Verified ' + vpRel(dob, vdate, 'the planting day') + '.' : '');
+    return '<div class="sum">' + row('Planned DOB (original plan)', planned ? esc(planned) : 'none on record') + row('Manager-selected planting date', selDate ? esc(selDate) : 'none recorded', selSub) +
+      row('ACTUAL planting date (verified here)', vpIsoOk(dob) ? esc(dob) : 'not entered yet', act.filter(Boolean).join(' '), true) + row('Verification date', vpIsoOk(vdate) ? esc(vdate) : 'defaults to the actual planting date', vd) + '</div>';
   };
   openSheet({
     title: 'Verify planting',
     body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${startDate}"></label>` +
       `<p class="hint">${startDate ? 'Filled from ' + esc(startFrom) + '. Change it only if the crop went in on another day.' : 'No planting date that has already arrived was found for this bed and cohort, so the box is blank. Enter the real planting date once the crop is in the ground.'}${found0 && found0.completed && found0.completed !== startDate ? ' The activity was marked complete on ' + esc(found0.completed) + '.' : ''}</p>` +
-      `<p class="hint" id="vp-sel">${vpSelText(startDate)}</p>` +
+      `<div id="vp-sel">${vpDates(startDate, startDate)}</div>` +
+      `<p style="margin:0 0 10px;"><button type="button" class="btn" id="vp-di">Review planting date impact</button></p>` +
       `<label class="field"><span>Verification date</span><input class="input" id="vp-vdate" type="date" value="${startDate}" min="${startDate}"></label>` +
       `<p class="hint">Defaults to the actual planting date. Any date on or after it is accepted, so a late or historical verification is not blocked. The system separately records the exact time you submit this.</p>` +
       `<div id="vp-alarm" class="vp-alarm" role="alert" hidden></div>` +
@@ -1707,7 +1728,7 @@ async function vfPlantSheet(bedId) {
       `<div id="vp-win" hidden><label class="field"><span>Explanation for accepting a planting date outside the allowable window (required)</span><textarea class="input" id="vp-win-reason" rows="2"></textarea></label></div>` +
       `<div id="vp-dev" hidden><label class="field"><span>Reason for date change (differs from selected/planned date)</span><textarea class="input" id="vp-dev-reason" rows="2"></textarea></label></div>` +
       '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted.</p>',
-    actions: [{ label: 'Verify planting', primary: true, progress: 'Verifying planting for bed ' + bed.id + '\u2026', done: 'Planting verified.', run: async () => {
+    actions: [{ label: 'Verify planting', primary: true, progress: 'Verifying planting for bed ' + bed.id + '\u2026', done: 'Planting verified. Actual planting date recorded.', run: async (step) => {
       const dob = ($('#vp-date').value || '').trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) throw apiError('Enter a valid planting date (the box is empty or not a real date).', 'INPUT');
       /* Read the typed text directly. The sheet hides its whole body while an action runs, so a check for hidden ancestors returned '' and the
@@ -1720,6 +1741,7 @@ async function vfPlantSheet(bedId) {
       if (dob > today && !ovWhy) { $('#vp-ov').hidden = false; throw apiError('That planting date is in the future. Enter an explanation in the override box above to continue, then press Verify planting again.', 'INPUT'); }
       if ($('#vp-win') && !$('#vp-win').hidden && !winWhy) throw apiError('This date is outside the allowable planting window. Enter your explanation in the box above.', 'INPUT');
       if ($('#vp-dev') && !$('#vp-dev').hidden && !devWhy) throw apiError('This date differs from the selected or planned date. Enter a reason for the date change in the box above.', 'INPUT');
+      step('Saving the planting date and starting the crop clock\u2026 (step 1 of 2)');
       try {
         await apiCall(ACTIONS.verifyPlanting, Object.assign({ cohortId: bed.cohortId, actualDob: dob, verificationDate: vdate }, winWhy ? { windowOverrideReason: winWhy } : {}, devWhy ? { deviationReason: devWhy } : {}, (ovWhy && !($('#vp-ov').hidden)) ? { overrideReason: ovWhy } : {}), VF_TIMEOUT_MS);
       } catch (err) {
@@ -1733,7 +1755,7 @@ async function vfPlantSheet(bedId) {
         else if (c === 'DEVIATION_REASON_REQUIRED') { $('#vp-dev').hidden = false; err.message = m + ' Enter your explanation in the box above, then press Verify planting again.'; }
         throw err;
       }
-      toast('Planting recorded for ' + dob + '.');
+      step('Refreshing the verification list\u2026 (step 2 of 2)');
       await loadVerify({ silent: true });
     } }]
   });
@@ -1760,13 +1782,88 @@ async function vfPlantSheet(bedId) {
     box.className = 'vp-alarm' + (cls ? ' ' + cls : ''); box.innerHTML = html; box.hidden = false;
     win.hidden = p.state !== 'OUTSIDE_NEEDS_NOTE'; dev.hidden = p.state !== 'DIFFERENT_IN_WINDOW' && p.state !== 'SELECTION_CHANGED';
   };
+  const diBtn = $('#vp-di'); if (diBtn) diBtn.addEventListener('click', () => diOpen(bed));
   const dateEl = $('#vp-date');
   const vpVdSync = () => { const de = $('#vp-date'), ve = $('#vp-vdate'); if (!de || !ve) return; ve.min = de.value || ''; if (!ve.dataset.touched) ve.value = de.value || ''; else if (ve.value && de.value && ve.value < de.value) ve.value = de.value; const ov = $('#vp-ov'); if (ov && de.value && de.value > today) ov.hidden = false; };
   const veEl = $('#vp-vdate'); if (veEl) veEl.addEventListener('input', () => { veEl.dataset.touched = '1'; });
   if (dateEl) { dateEl.addEventListener('change', vpVdSync); dateEl.addEventListener('input', vpVdSync); }
-  const vpSelUpd = () => { const el = $('#vp-sel'), de = $('#vp-date'); if (el && de) el.innerHTML = vpSelText((de.value || '').trim()); };
+  const vpSelUpd = () => { const el = $('#vp-sel'), de = $('#vp-date'), ve = $('#vp-vdate'); if (el && de) el.innerHTML = vpDates((de.value || '').trim(), ((ve && ve.value) || de.value || '').trim()); };
+  if (veEl) veEl.addEventListener('input', vpSelUpd);
   if (dateEl) { dateEl.addEventListener('change', vpCheck); dateEl.addEventListener('input', vpCheck); dateEl.addEventListener('change', vpSelUpd); dateEl.addEventListener('input', vpSelUpd); }
   vpCheck();
+}
+
+
+/* ----- DATE-IMPACT POP-UP (same content and rules as ranch_aab.html) -----
+   Shows the manager's selected planting date (Manager_Selected_Planting_Date, already saved on the cohort by the server) with the three things the manager
+   must see: (i) propagation: days of propagation the crop needs and the new start, (ii) harvest: new harvest-ready window and days to harvest, (iii) the
+   original planned date and harvest it replaces. Also the allowable window (with an accept-with-explanation option), a change-date control, a stale
+   propagation sign-off (confirm in the manager's own words, or override with any explanation) and the irrigation/harvest acknowledgement (OK). */
+const diDay = (a, b) => { const p = x => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(x || '')); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : NaN; }; const n = Math.round((p(b) - p(a)) / 864e5); return isNaN(n) ? null : n; };
+const diAdd = (iso, n) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '')); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + n)).toISOString().slice(0, 10) : ''; };
+const diFmt = x => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(x || '')); return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : (x || '\u2014'); };
+const diShift = n => n == null ? '' : (n === 0 ? 'same as plan' : Math.abs(n) + ' day' + (Math.abs(n) === 1 ? '' : 's') + (n > 0 ? ' later' : ' earlier') + ' than plan');
+const DI = { bed: null, cohortId: '', activity: '', sel: null, busy: false };
+function diPlantActivity(bed) {   // the planting activity name this cohort uses (the server accepts Transplanting or Direct Seeding)
+  const own = ['directseeding', 'transplanting'], sessions = (state.vf && state.vf.allSessions) || [];
+  for (const r of sessions.concat(bed.plantRows || [])) {
+    if (String(g(r, 'bedId') || bed.id) !== bed.id) continue;
+    const n = String(g(r, 'taskType', 'activity', 'activityName') || '').replace(/^ACT_\d+:\s*/, '').trim();
+    if (own.includes(n.toLowerCase().replace(/\s+/g, ''))) return n;
+  }
+  return 'Transplanting';
+}
+async function diOpen(bed) {
+  DI.bed = bed; DI.cohortId = bed.cohortId; DI.activity = diPlantActivity(bed); DI.sel = null;
+  const dlg = $('#di-dlg'); $('#di-body').innerHTML = '<h3>Planting date impact</h3><p class="hint">Working out what this date changes\u2026</p>';
+  if (!dlg.open) dlg.showModal();
+  await diLoad();
+}
+async function diLoad() {
+  try { const r = await apiCall(ACTIONS.getPlantingSelection, { cohortId: DI.cohortId }, 30000); DI.sel = (r && r.data && r.data.selectedDate !== undefined) ? r.data : r; diRender(); }
+  catch (e) { $('#di-body').innerHTML = '<h3>Planting date impact</h3><div class="vp-alarm crit">Could not work out the impact of this date: ' + esc(e.message || 'unknown error') + '</div><div class="sheet-actions"><button type="button" class="btn" onclick="$(\'#di-dlg\').close()">Close</button></div>'; }
+}
+function diRender() {
+  const s = DI.sel || {}, box = (cls, t, inner) => `<div class="vp-alarm ${cls || ''}"><b>${esc(t)}</b>${inner}</div>`, row = (k, v) => v ? `<div>${esc(k)}: <b>${esc(v)}</b></div>` : '';
+  if (!s.selectedDate) { $('#di-body').innerHTML = '<h3>Planting date impact</h3><p class="hint">No planting date has been selected for ' + esc(DI.cohortId) + ' yet.</p><div class="sheet-actions"><button type="button" class="btn btn-primary" onclick="$(\'#di-dlg\').close()">OK</button></div>'; return; }
+  const h = s.harvestWindow, ph = s.plannedHarvest, p = s.propagation, w = s.windowCheck, st = s.propagationStale, planned = s.plannedDob;
+  const hs = (h && ph && ph.earliest) ? diDay(ph.earliest, h.earliest) : null, out = [];
+  out.push(box('ok', 'Planting date', row('Selected date', diFmt(s.selectedDate)) + row('Original planned date', planned ? diFmt(planned) : 'none on record') + (planned ? row('Difference', diShift(diDay(planned, s.selectedDate))) : '') + '<div>Saved to the cohort now and shown in the activity profile.</div>'));
+  if (p) {
+    const orig = planned ? diAdd(planned, -p.leadDays) : '';
+    out.push(box('ok', 'Propagation', `<div>This crop needs <b>${esc(p.leadDays)} day${p.leadDays === 1 ? '' : 's'}</b> of propagation before it is ready to plant.</div>` + row('New propagation start', diFmt(p.propagationStart)) + (orig ? row('Original start (planned date)', diFmt(orig)) : '')));
+  } else out.push(box('ok', 'Propagation', '<div>No propagation lead time applies to this crop (direct-seeded or none on file).</div>'));
+  if (st && st.stale) out.push(box('crit', 'Propagation re-verification required', `<div>${esc(st.reason || 'The earlier propagation sign-off does not cover this date.')}</div><div>Check the seedlings against this date, then confirm in your own words, or override with an explanation.</div>
+    <div style="margin-top:8px;"><button type="button" class="btn" onclick="diPropConfirm()">Confirm propagation ready for ${esc(diFmt(s.selectedDate))}</button></div>
+    <label class="field"><span>Or override with an explanation (any wording)</span><textarea class="input" id="di-prop-reason" rows="2"></textarea></label><button type="button" class="btn" onclick="diPropOverride()">Override with explanation</button>`));
+  if (h) out.push(box('ok', 'Harvest', row('New projected harvest', diFmt(h.earliest) + ' \u2192 ' + diFmt(h.latest)) + (ph && ph.earliest ? row('Original planned harvest', diFmt(ph.earliest) + ' \u2192 ' + diFmt(ph.latest)) : '') + (hs != null ? row('Shift', diShift(hs)) : '') + (h.minDays ? `<div>${esc(h.minDays + '\u2013' + h.maxDays)} days from planting to first harvest.</div>` : '')));
+  if (w && (w.state === 'IN_WINDOW' || w.state === 'OUTSIDE_AUTHORIZED' || w.state === 'OUTSIDE_AUTH_REQUIRED')) {
+    const need = w.state === 'OUTSIDE_AUTH_REQUIRED';
+    out.push(box(need ? 'crit' : 'ok', w.state === 'IN_WINDOW' ? 'Inside the allowable planting window' : (w.state === 'OUTSIDE_AUTHORIZED' ? 'Outside the window, accepted by a manager' : 'Outside the allowable planting window'), row('Allowable planting dates', w.rangeText) +
+      (need ? `<div>You can keep this date or change it below. Keeping it outside the window needs your written explanation (any wording).</div><label class="field"><span>Explanation for planting on ${esc(diFmt(s.selectedDate))} (required)</span><textarea class="input" id="di-win-reason" rows="2"></textarea></label><button type="button" class="btn btn-primary" onclick="diAccept()">Accept ${esc(diFmt(s.selectedDate))}</button>` : '')));
+  } else if (w && w.state === 'NO_WINDOW') out.push('<p class="hint">No allowable planting window is on file for this crop, so nothing restricts this date.</p>');
+  out.push(box('', 'Irrigation and harvest will change', s.differsFromPlan
+    ? `<div>Changing the planting date changes the schedule: irrigation for this cohort will start from <b>${esc(diFmt(s.selectedDate))}</b> (planned ${esc(planned ? diFmt(planned) : 'none')})${h ? ` and harvest will be ready <b>${esc(diFmt(h.earliest))} \u2192 ${esc(diFmt(h.latest))}</b>` : ''}. Click OK to acknowledge.</div>`
+    : '<div>Irrigation schedules start from the verified planting date. If the verified date differs from this one, the irrigation and harvest dates will shift with it.</div>'));
+  out.push(`<div class="vp-alarm"><b>Change the date</b><div style="display:flex;gap:8px;align-items:center;margin-top:6px;"><input class="input" type="date" id="di-date" value="${esc(s.selectedDate)}"><button type="button" class="btn" onclick="diUseDate()">Use this date</button></div></div>`);
+  $('#di-body').innerHTML = '<h3>Planting date ' + esc(diFmt(s.selectedDate)) + '</h3>' + out.join('') + '<div class="form-error" id="di-error" role="alert" hidden></div><div class="sheet-actions"><button type="button" class="btn btn-primary" onclick="$(\'#di-dlg\').close()">OK</button></div>';
+}
+function diRun(label, fn, doneMsg) {
+  runProgress({ title: 'Planting date', progress: label, run: async (step) => { await fn(); step('Reloading the date impact\u2026'); await diLoad(); }, done: doneMsg || 'Completed.' });
+}
+function diUseDate() {
+  const v = ($('#di-date') || {}).value || ''; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { toast('Pick a valid date.'); return; }
+  diRun('Saving the new planting date\u2026', () => apiCall(ACTIONS.setPlantingSelection, { bedId: DI.bed.id, cohortId: DI.cohortId, activity: DI.activity, date: v }, 60000), 'Planting date saved.');
+}
+function diAccept() {
+  const reason = (($('#di-win-reason') || {}).value || '').trim(), date = DI.sel && DI.sel.selectedDate;
+  if (!reason) { toast('Enter an explanation to accept this planting date.'); return; }
+  diRun('Recording your acceptance\u2026', () => apiCall(ACTIONS.authorizeWindow, { cohortId: DI.cohortId, date, reason }, 60000), 'Planting date accepted. Your explanation is on record.');
+}
+function diPropConfirm() { diRun('Recording your confirmation\u2026', () => apiCall(ACTIONS.verifyPropagation, { cohortId: DI.cohortId }, 60000), 'Propagation confirmed.'); }
+function diPropOverride() {
+  const reason = (($('#di-prop-reason') || {}).value || '').trim(); if (!reason) { toast('Enter an explanation to override the propagation verification.'); return; }
+  diRun('Recording the override\u2026', () => apiCall(ACTIONS.verifyPropagation, { cohortId: DI.cohortId, overrideReason: reason, date: DI.sel && DI.sel.selectedDate || '' }, 60000), 'Override recorded under your name.');
 }
 
 
@@ -1953,7 +2050,7 @@ function renderHarvestComplete() {
 /* A sheet action (a.run) shows PROGRESS while the server works (the form is hidden, not removed, and a running clock shows it has not
  * stalled), then a COMPLETED screen with an OK button that the manager presses to close. Nothing closes by itself, so the result is never
  * missed. On an error the form comes back with the message and everything typed is still there. a.progress = text while running (default
- * "<label>…"); a.done = completed message (no done = the sheet just closes); a.keep = stay open after (e.g. "Propagation verified"). */
+ * "<label>…"); a.done = completed message, or a function of run()'s result (no done = a default "completed" message; the sheet never closes by itself); a.keep = stay open after (e.g. "Propagation verified"). */
 let sheetBusy = false;
 function openSheet({ title, body, actions }) {
   const dlg = $('#sheet');
@@ -1973,22 +2070,25 @@ function openSheet({ title, body, actions }) {
     const btns = $$('#sheet-main [data-sheet]'); btns.forEach(x => { x.disabled = true; });
     $('#sheet-error').hidden = true;
     sheetBusy = true;
-    let timer = null;
+    let timer = null, step = () => {};
     if (!a.keep) {
-      const msg = a.progress || (a.label + '…'), t0 = Date.now();
+      let msg = a.progress || (a.label + '…'); const t0 = Date.now();
+      step = m => { msg = m; paint(); };   /* a.run(step) can change the message as the work moves on */
       main.hidden = true; st.hidden = false;
-      const paint = () => { st.innerHTML = `<div class="st-bar" role="progressbar" aria-label="${esc(msg)}"><i></i></div><div class="st-msg" aria-live="polite">${esc(msg)}</div><p class="st-sub">${Math.round((Date.now() - t0) / 1000)} s · please keep this open until it finishes</p>`; };
+      const paint = () => { const secs = Math.round((Date.now() - t0) / 1000);
+        st.innerHTML = `<div class="st-bar" role="progressbar" aria-label="${esc(msg)}"><i></i></div><div class="st-msg" aria-live="polite">${esc(msg)}</div><p class="st-sub">${secs} s · please keep this open until it finishes</p>${secs >= 8 ? '<p class="st-sub">Still working. The server is reading and writing several sheets, so this can take a little while.</p>' : ''}`; };
       paint(); timer = setInterval(paint, 1000);
     }
     try {
-      await a.run();
+      const result = await a.run(step);
       if (timer) clearInterval(timer);
       sheetBusy = false;
-      if (a.keep) { btns.forEach(x => { x.disabled = false; }); if (a.done) toast(a.done); }
-      else if (a.done) {
-        st.innerHTML = `<div class="st-tick" aria-hidden="true">✓</div><div class="st-msg" role="status">${esc(a.done)}</div><div class="sheet-actions"><button type="button" class="btn btn-primary" data-sheet="ok" id="sheet-ok">OK</button></div>`;
+      const doneMsg = (typeof a.done === 'function' ? a.done(result) : a.done) || ((a.progress || a.label).replace(/\u2026|\.\.\.$/g, '').trim() + ': completed.');
+      if (a.keep) { btns.forEach(x => { x.disabled = false; }); toast(doneMsg); }
+      else {   /* EVERY finished action ends on a Completed screen; only the manager's OK closes it */
+        st.innerHTML = `<div class="st-tick" aria-hidden="true">✓</div><div class="st-msg" role="status">${esc(doneMsg)}</div><div class="sheet-actions"><button type="button" class="btn btn-primary" data-sheet="ok" id="sheet-ok">OK</button></div>`;
         const ok = $('#sheet-ok'); if (ok) ok.focus();
-      } else dlg.close();
+      }
     } catch (err) {
       if (timer) clearInterval(timer);
       sheetBusy = false;
@@ -1997,6 +2097,11 @@ function openSheet({ title, body, actions }) {
     }
   };
   dlg.showModal();
+}
+/* One-shot action with no form: opens the progress screen at once, runs the work, then shows Completed with an OK. On an error the message is shown with a Try again button. */
+function runProgress({ title, progress, run, done }) {
+  openSheet({ title, body: '', actions: [{ label: 'Try again', primary: true, progress, done, run }] });
+  const go = $('#sheet-body [data-sheet="0"]'); if (go) go.click();
 }
 const sumRows = rows => '<div class="sum">' + rows.filter(r => r[1]).map(r => `<div><span>${esc(r[0])}</span><b>${esc(r[1])}</b></div>`).join('') + '</div>';
 
@@ -2034,7 +2139,7 @@ function openCloseSession(i) {
     body: sumRows([['Worker', s.worker], ['Task', s.activityId ? s.activityId + ': ' + s.task : s.task], ['Bed', s.bedId], ['Cohort', s.cohortId], [started ? 'Open for' : 'Status', started ? elapsedText(s.start) : 'Assigned, not started']]) +
       '<label class="field"><span>Note (optional)</span><input class="input" id="cs-note" maxlength="200" autocomplete="off"></label>' +
       '<p class="hint">' + (started ? 'This ends the session now and does not start a new one. It is logged.' : 'The worker has not started it, so nothing is lost. The assignment is removed.') + '</p>',
-    actions: [{ label: started ? 'Close session' : 'Clear assignment', primary: true, done: started ? 'Session closed.' : 'Assignment cleared.', run: async () => {
+    actions: [{ label: started ? 'Close session' : 'Clear assignment', primary: true, progress: started ? 'Closing the session\u2026' : 'Clearing the assignment\u2026', done: started ? 'Session closed.' : 'Assignment cleared.', run: async () => {
       const note = ($('#cs-note') ? $('#cs-note').value : '').trim();
       try {
         if (started) await apiCall(ACTIONS.closeSession, { sessionId: s.id, workerId: s.workerId, bedId: s.bedId, cohortId: s.cohortId, taskType: s.task, note });
@@ -2053,7 +2158,7 @@ function confirmVerifyReady(i) {
     title: 'Verify harvest ready',
     body: sumRows([['Bed', h.bedId], ['Cohort', h.cohortId], ['Crop', h.crop], ['Ready date', h.ready ? fmtDate(h.ready) : '']]) +
       '<p class="hint">Only verify after you have checked the bed. This moves the cohort to its next field state.</p>',
-    actions: [{ label: 'Verify harvest ready', primary: true, done: 'Harvest ready verified.',
+    actions: [{ label: 'Verify harvest ready', primary: true, progress: 'Verifying harvest ready for bed ' + h.bedId + '\u2026', done: 'Harvest ready verified.',
       run: async () => { await apiCall(ACTIONS.verifyHarvestReady, { cohortId: h.cohortId, bedId: h.bedId }); await loadHarvestCandidates(); } }]
   });
 }
@@ -2064,7 +2169,7 @@ function confirmVerifyComplete(i) {
     body: sumRows([['Cohort', c.cohortId], ['Crop', c.crop], ['Beds', Array.isArray(c.beds) ? c.beds.join(', ') : c.beds], ['Harvested', c.weight || '']]) +
       '<label class="field"><span>Reason (optional)</span><input class="input" id="tc-reason" maxlength="200" autocomplete="off" placeholder="e.g. final pick done"></label>' +
       '<p class="hint">This ends production for the cohort and starts bed turnover (perennials are put on hold instead). Only do this when no more picks are planned. It cannot be undone from this app.</p>',
-    actions: [{ label: 'Terminate cohort', primary: true, done: 'Cohort terminated.',
+    actions: [{ label: 'Terminate cohort', primary: true, progress: 'Terminating ' + c.cohortId + '\u2026', done: 'Cohort terminated.',
       run: async () => { const reason = ($('#tc-reason').value || '').trim() || 'Production ended after harvest'; await apiCall(ACTIONS.terminateCohort, { cohortId: c.cohortId, reason }); await loadHarvestableCohorts(); } }]
   });
 }
