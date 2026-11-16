@@ -1502,10 +1502,10 @@ function renderVerifyBed() {
 }
 /* ---- Direct-seed readiness (ACT_007): five checkpoints on this cohort and bed. Greenhouse sign-off is untouched. ---- */
 const DS_CHECK_DEFS = [
-  { key: 'soilTilth', label: 'Soil Tilth', required: 'Suitable prepared seedbed' },
-  { key: 'seederSetup', label: 'Seeder Setup', required: 'Correct crop-specific equipment calibration' },
-  { key: 'waterAccess', label: 'Water Access', required: 'Irrigation ready for immediate post-sowing use' },
-  { key: 'qrMarker', label: 'QR Marker', required: 'Physical plaque readable and resolves to correct bed' }
+  { key: 'soilTilth', label: 'Soil Tilth', required: '30-inch bed, bare soil, clod-free and firmed' },
+  { key: 'seederSetup', label: 'Seeder Setup', required: 'Correct seed plate, depth shoe and sprocket ratio' },
+  { key: 'waterAccess', label: 'Water Access', required: 'Irrigation pressurized for immediate post-sowing watering' },
+  { key: 'qrMarker', label: 'QR Marker', required: 'Physical QR plaque readable at the bed head' }
 ];
 async function loadDirectSeedReadiness(bed) {
   const host = $('#ds-readiness'); if (!host || !bed || !bed.cohortId || !bed.id) return;
