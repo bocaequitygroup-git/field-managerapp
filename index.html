@@ -1675,7 +1675,6 @@ async function vfPlantSheet(bedId) {
      A future date is never pre-filled: the crop cannot be in the ground yet and the server refuses it. */
   let startDate = '', startFrom = '';
   if (vd) { startDate = vd.date || ''; startFrom = vd.fromText || ''; }   // ONE default: the server's (PlantingSelection.gs). The local lookup below only runs if the server could not answer.
-  else if (selDate) { startDate = selDate; startFrom = 'the date you selected when you assigned the planting'; }
   else if (found && found.date && found.date <= today) { startDate = found.date; startFrom = found.from; }
   else if (found && found.completed && found.completed <= today) { startDate = found.completed; startFrom = 'the day the planting activity was completed'; }
   /* ONE dates block, four fixed names: Planned DOB, Manager-selected planting date (reference only), ACTUAL planting date (what is verified), Verification date. */
@@ -1720,7 +1719,6 @@ async function vfPlantSheet(bedId) {
       const vdate = val('#vp-vdate') || dob;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(vdate)) throw apiError('That is not a valid verification date.', 'INPUT');
       if (vdate < dob) throw apiError('The verification date cannot be before the actual planting date (' + dob + ').', 'INPUT');
-      if (dob > today && !ovWhy) { $('#vp-ov').hidden = false; throw apiError('That planting date is in the future. Enter an explanation in the override box above to continue, then press Verify planting again.', 'INPUT'); }
       if ($('#vp-win') && !$('#vp-win').hidden && !winWhy) throw apiError('This date is outside the allowable planting window. Enter your explanation in the box above.', 'INPUT');
       if ($('#vp-dev') && !$('#vp-dev').hidden && !devWhy) throw apiError('This date differs from the selected or planned date. Enter a reason for the date change in the box above.', 'INPUT');
       step('Saving the planting date and starting the crop clock\u2026 (step 1 of 2)');
