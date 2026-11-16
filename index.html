@@ -218,9 +218,15 @@ dialog.sheet[open] { animation: rise .18s ease-out; }
 .sheet .sum { background: #F3F6F2; border-radius: 10px; padding: 10px 12px; margin: 10px 0 14px; }
 .sheet .sum div { display: flex; justify-content: space-between; gap: 12px; }
 .sheet .sum span { color: var(--muted); }
+.sheet .sum div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 14px; padding: 6px 0; border-bottom: 1px solid #E1E8E0; }
+.sheet .sum div:last-child { border-bottom: none; }
+.sheet .sum span { font-size: 15px; }
+.sheet .sum b { font-size: 16px; }
 .sheet .form-error { margin: 0 0 12px; }
 .sheet-actions { display: grid; gap: 10px; margin-top: 14px; }
 .hint { font-size: 14px; color: var(--muted); margin: -6px 0 12px; }
+.hint { color: #3F4D44; line-height: 1.5; }
+.vp-alarm { font-size: 15px; line-height: 1.5; padding: 12px 14px; margin: 0 0 14px; }
 /* progress + completed states of a sheet action (openSheet) */
 .sheet-status { text-align: center; padding: 18px 4px 6px; }
 .sheet-status .st-msg { font-size: 18px; font-weight: 600; margin: 12px 0 4px; }
@@ -1658,6 +1664,7 @@ function vfPlantingDate(bed) {
 }
 async function vfPlantSheet(bedId) {
   const bed = state.vf.beds.find(b => b.id === bedId); if (!bed) return;
+  openSheet({ title: 'Verify planting', body: '<p class="hint">Loading the planting details for bed ' + esc(bed.id) + '\u2026</p>', actions: [] });
   const t = new Date(), today = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');   // local day, not UTC
   /* What the manager SELECTED when assigning the planting (server: PlantingSelection.gs). Read-only; if it cannot be read, verification still works. */
   let sel = null, vd = null;
@@ -2072,7 +2079,7 @@ function openSheet({ title, body, actions }) {
       const box = $('#sheet-error'); box.textContent = err.message || 'That did not work.'; box.hidden = false; btns.forEach(x => { x.disabled = false; });
     }
   };
-  dlg.showModal();
+  if (!dlg.open) dlg.showModal();
 }
 /* One-shot action with no form: opens the progress screen at once, runs the work, then shows Completed with an OK. On an error the message is shown with a Try again button. */
 function runProgress({ title, progress, run, done }) {
