@@ -833,48 +833,67 @@ function renderBoard() {
   $('#board-meta').textContent = state.sessions.length ? state.sessions.length + ' open, updated ' + fmtTime(new Date()) : 'Updated ' + fmtTime(new Date());
   const box = $('#board-list');
   if (!state.sessions.length) { box.innerHTML = empty('No open sessions', 'Nobody is signed into a bed right now. Sessions appear here as soon as a worker starts one.'); return; }
-  box.innerHTML = state.sessions.map((s, i) => {
-    const assigned = s.status === 'ASSIGNED';   // manager assigned it, worker hasn't tapped Start yet (see ActivityEngine.gs)
-    const paused = s.status === 'PAUSED';
-    const lastPause = s.pauseTimes[s.pauseTimes.length - 1];
-    const stillPaused = paused && s.pauseTimes.length > s.resumeTimes.length;
-    const lastReason = s.pauseReasons[s.pauseReasons.length - 1];
-    // FIX (bug 6): pause chip only ever said "X ago" (time since the pause started, which
-    // reads as elapsed-so-far, not a clock time) and never said what time the pause began.
-    // Now states reason, the actual clock time it was paused at, and how long it's been
-    // paused for (there's no resume time to report a completed span against while it's
-    // still open - "and counting" makes that explicit rather than implying a fixed duration).
-    const chips = [];
-    if (assigned) chips.push('<span class="chip neutral">Waiting for worker to start</span>');
-    if (stillPaused && lastPause) {
-      chips.push(`<span class="chip med">Paused${lastReason ? ': ' + esc(lastReason) : ''}, since ${esc(fmtTime(lastPause))} (${esc(elapsedText(lastPause))} and counting)</span>`);
-    }
-    // FIX (bug 6): chip used to say only "Reassigned from X" - the current assignee (s.worker)
-    // is the card's own title so it read fine in isolation, but didn't state the full handoff
-    // the way the Reassignments history view does ("X to Y"). Spelled out here too.
-    if (s.reassignedFrom) chips.push(`<span class="chip neutral">Reassigned from ${esc(workerName(s.reassignedFrom))} to ${esc(s.worker)}</span>`);
-    const elapsed = assigned
-      ? '<span>Not started</span><small>assigned, waiting</small>'
-      : `<span data-since="${esc(s.start || '')}">${esc(elapsedText(s.start) || '-')}</span><small>${s.start ? (stillPaused ? 'started ' : 'since ') + esc(fmtTime(s.start)) : 'start time missing'}</small>`;
-    // FIX (bug 6): "Created by" / "Assigned by" was never shown at all - Manager_ID was
-    // read off the session (get-manager-board) but nothing in normSession()/renderBoard()
-    // surfaced it. Omitted entirely for a worker-self-started session (no Manager_ID).
-    const createdBy = s.managerId ? `<p class="sub">Assigned by ${esc(workerName(s.managerId))}</p>` : '';
+  // Group one card per bed + activity (what was dispatched), workers listed as rows under it -
+  // instead of one flat card per worker/activity pair. Mirrors the "Active dispatches on <bed>"
+  // grouping in ranch_aab.html, so DirectSeeding assigned to two workers, or three prep tasks
+  // running on the same bed, read as three dispatches rather than a wall of near-duplicate cards.
+  // data-i on each row still indexes into state.sessions, same as before grouping.
+  const groups = [], byKey = {};
+  state.sessions.forEach((s, i) => {
+    const key = (s.bedId || '') + '|' + (s.activityId || s.task);
+    let g = byKey[key];
+    if (!g) { g = byKey[key] = { bedId: s.bedId, cohortId: s.cohortId, crop: cropFor(s), activityId: s.activityId, task: s.task, desc: s.desc, rows: [] }; groups.push(g); }
+    g.rows.push({ s, i });
+  });
+  box.innerHTML = groups.map(g => {
+    const live = g.rows.some(r => r.s.status !== 'ASSIGNED');
+    const rows = g.rows.map(({ s, i }) => {
+      const assigned = s.status === 'ASSIGNED';   // manager assigned it, worker hasn't tapped Start yet (see ActivityEngine.gs)
+      const paused = s.status === 'PAUSED';
+      const lastPause = s.pauseTimes[s.pauseTimes.length - 1];
+      const stillPaused = paused && s.pauseTimes.length > s.resumeTimes.length;
+      const lastReason = s.pauseReasons[s.pauseReasons.length - 1];
+      // FIX (bug 6): pause chip only ever said "X ago" (time since the pause started, which
+      // reads as elapsed-so-far, not a clock time) and never said what time the pause began.
+      // Now states reason, the actual clock time it was paused at, and how long it's been
+      // paused for (there's no resume time to report a completed span against while it's
+      // still open - "and counting" makes that explicit rather than implying a fixed duration).
+      const chips = [];
+      if (stillPaused && lastPause) {
+        chips.push(`<span class="chip med">Paused${lastReason ? ': ' + esc(lastReason) : ''}, since ${esc(fmtTime(lastPause))} (${esc(elapsedText(lastPause))} and counting)</span>`);
+      }
+      // FIX (bug 6): chip used to say only "Reassigned from X" - the current assignee (s.worker)
+      // is the row's own title so it read fine in isolation, but didn't state the full handoff
+      // the way the Reassignments history view does ("X to Y"). Spelled out here too.
+      if (s.reassignedFrom) chips.push(`<span class="chip neutral">Reassigned from ${esc(workerName(s.reassignedFrom))} to ${esc(s.worker)}</span>`);
+      // FIX (bug 6): "Created by" / "Assigned by" was never shown at all - Manager_ID was
+      // read off the session (get-manager-board) but nothing in normSession()/renderBoard()
+      // surfaced it. Omitted entirely for a worker-self-started session (no Manager_ID).
+      const createdBy = s.managerId ? `<p class="sub">Assigned by ${esc(workerName(s.managerId))}</p>` : '';
+      return `
+      <div class="item">
+        <div class="item-top">
+          <div><span class="item-title">${esc(s.worker)}</span>${createdBy}</div>
+          <span class="item-time">${assigned ? 'Not started' : (esc(elapsedText(s.start) || '-'))}</span>
+        </div>
+        <p class="sub">${assigned ? 'assigned, waiting' : (s.start ? (stillPaused ? 'started ' : 'since ') + esc(fmtTime(s.start)) : 'start time missing')}</p>
+        ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
+        <div class="vbar" style="margin-top:8px">
+          <button class="btn" data-act="reassign" data-i="${i}" type="button">Reassign</button>
+          <button class="btn" data-act="close-session" data-i="${i}" type="button">${assigned ? 'Clear assignment' : 'Close session'}</button>
+        </div>
+      </div>`;
+    }).join('');
     return `
-    <article class="session">
-      <div class="session-top">
-        <div><h3>${esc(s.worker)}</h3><p class="sub">${esc(s.activityId ? s.activityId + ': ' + s.task : s.task)}</p>${s.desc ? `<p class="sub">${esc(s.desc)}</p>` : ''}${createdBy}</div>
-        <div class="elapsed">${elapsed}</div>
+    <div class="group">
+      <div class="group-head">
+        <div><b>${esc(g.activityId ? g.activityId + ': ' + g.task : g.task)}</b>${g.desc ? `<div class="sub">${esc(g.desc)}</div>` : ''}
+          <div class="sub">Bed ${esc(g.bedId || '-')} · Cohort ${esc(g.cohortId || '-')}${g.crop ? ' · ' + esc(g.crop) : ''}</div>
+        </div>
+        <span class="chip ${live ? '' : 'neutral'}">${live ? 'In progress' : 'Assigned'}</span>
       </div>
-      ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
-      <dl class="facts">
-        <div><dt>Bed</dt><dd>${esc(s.bedId || '-')}</dd></div>
-        <div><dt>Cohort</dt><dd>${esc(s.cohortId || '-')}</dd></div>
-        <div><dt>Crop</dt><dd>${esc(cropFor(s) || '-')}</dd></div>
-      </dl>
-      <button class="btn btn-block" data-act="reassign" data-i="${i}" type="button">Reassign</button>
-      <button class="btn btn-block" data-act="close-session" data-i="${i}" type="button">${assigned ? 'Clear assignment' : 'Close session'}</button>
-    </article>`;
+      <div class="list">${rows}</div>
+    </div>`;
   }).join('');
 }
 
@@ -1646,8 +1665,8 @@ async function vfPlantSheet(bedId) {
   /* Default: the selected date once it has arrived; else the scheduled / completed day only if it is not in the future; else blank.
      A future date is never pre-filled: the crop cannot be in the ground yet and the server refuses it. */
   let startDate = '', startFrom = '';
-  if (vd) { startDate = (vd.date && vd.date <= today) ? vd.date : ''; startFrom = vd.fromText || ''; }   // ONE default: the server's (PlantingSelection.gs). The local lookup below only runs if the server could not answer.
-  else if (selDate && selDate <= today) { startDate = selDate; startFrom = 'the date you selected when you assigned the planting'; }
+  if (vd) { startDate = vd.date || ''; startFrom = vd.fromText || ''; }   // ONE default: the server's (PlantingSelection.gs). The local lookup below only runs if the server could not answer.
+  else if (selDate) { startDate = selDate; startFrom = 'the date you selected when you assigned the planting'; }
   else if (found && found.date && found.date <= today) { startDate = found.date; startFrom = found.from; }
   else if (found && found.completed && found.completed <= today) { startDate = found.completed; startFrom = 'the day the planting activity was completed'; }
   /* ONE dates block, four fixed names: Planned DOB, Manager-selected planting date (reference only), ACTUAL planting date (what is verified), Verification date. */
