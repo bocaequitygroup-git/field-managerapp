@@ -1757,8 +1757,9 @@ async function vfPlantSheet(bedId) {
     box.className = 'vp-alarm' + (cls ? ' ' + cls : ''); box.innerHTML = html; box.hidden = false;
     win.hidden = p.state !== 'OUTSIDE_NEEDS_NOTE'; dev.hidden = p.state !== 'DIFFERENT_IN_WINDOW' && p.state !== 'SELECTION_CHANGED';
   };
-  const diBtn = $('#vp-di'); if (diBtn) diBtn.addEventListener('click', () => diOpen(bed));
+  const diBtn = $('#vp-di'); if (diBtn) diBtn.addEventListener('click', () => diOpen(bed, ($('#vp-date') && $('#vp-date').value) || ''));
   const dateEl = $('#vp-date');
+  if (dateEl) dateEl.addEventListener('change', () => { if ($('#di-dlg') && $('#di-dlg').open) { DI.date = dateEl.value; diLoad(); } });
   const vpVdSync = () => { const de = $('#vp-date'), ve = $('#vp-vdate'); if (!de || !ve) return; ve.min = de.value || ''; if (!ve.dataset.touched) ve.value = de.value || ''; else if (ve.value && de.value && ve.value < de.value) ve.value = de.value; const ov = $('#vp-ov'); if (ov && de.value && de.value > today) ov.hidden = false; };
   const veEl = $('#vp-vdate'); if (veEl) veEl.addEventListener('input', () => { veEl.dataset.touched = '1'; });
   if (dateEl) { dateEl.addEventListener('change', vpVdSync); dateEl.addEventListener('input', vpVdSync); }
@@ -1788,14 +1789,14 @@ function diPlantActivity(bed) {   // the planting activity name this cohort uses
   }
   return 'Transplanting';
 }
-async function diOpen(bed) {
-  DI.bed = bed; DI.cohortId = bed.cohortId; DI.activity = diPlantActivity(bed); DI.sel = null;
+async function diOpen(bed, date) {
+  DI.bed = bed; DI.cohortId = bed.cohortId; DI.date = date || ''; DI.activity = diPlantActivity(bed); DI.sel = null;
   const dlg = $('#di-dlg'); $('#di-body').innerHTML = '<h3>Planting date impact</h3><p class="hint">Working out what this date changes\u2026</p>';
   if (!dlg.open) dlg.showModal();
   await diLoad();
 }
 async function diLoad() {
-  try { const r = await apiCall(ACTIONS.getPlantingSelection, { cohortId: DI.cohortId }, 30000); DI.sel = (r && r.data && r.data.selectedDate !== undefined) ? r.data : r; diRender(); }
+  try { const r = await apiCall(ACTIONS.getPlantingSelection, { cohortId: DI.cohortId, actualDob: DI.date || '' }, 30000); DI.sel = (r && r.data && r.data.selectedDate !== undefined) ? r.data : r; diRender(); }
   catch (e) { $('#di-body').innerHTML = '<h3>Planting date impact</h3><div class="vp-alarm crit">Could not work out the impact of this date: ' + esc(e.message || 'unknown error') + '</div><div class="sheet-actions"><button type="button" class="btn" onclick="$(\'#di-dlg\').close()">Close</button></div>'; }
 }
 function diRender() {
@@ -1803,7 +1804,7 @@ function diRender() {
   if (!s.selectedDate) { $('#di-body').innerHTML = '<h3>Planting date impact</h3><p class="hint">No planting date has been selected for ' + esc(DI.cohortId) + ' yet.</p><div class="sheet-actions"><button type="button" class="btn btn-primary" onclick="$(\'#di-dlg\').close()">OK</button></div>'; return; }
   const h = s.harvestWindow, ph = s.plannedHarvest, p = s.propagation, w = s.windowCheck, st = s.propagationStale, planned = s.plannedDob;
   const hs = (h && ph && ph.earliest) ? diDay(ph.earliest, h.earliest) : null, out = [];
-  out.push(box('ok', 'Planting date', row('Selected date', diFmt(s.selectedDate)) + row('Original planned date', planned ? diFmt(planned) : 'none on record') + (planned ? row('Difference', diShift(diDay(planned, s.selectedDate))) : '') + '<div>Saved to the cohort now and shown in the activity profile.</div>'));
+  out.push(box('ok', 'Planting date', row('Actual planting date (entered)', diFmt(s.selectedDate)) + row('Manager-selected date', s.recordedDate ? diFmt(s.recordedDate) : 'none on record') + row('Original planned date', planned ? diFmt(planned) : 'none on record') + (planned ? row('Difference', diShift(diDay(planned, s.selectedDate))) : '') + '<div>Saved to the cohort now and shown in the activity profile.</div>'));
   if (p) {
     const orig = planned ? diAdd(planned, -p.leadDays) : '';
     out.push(box('ok', 'Propagation', `<div>This crop needs <b>${esc(p.leadDays)} day${p.leadDays === 1 ? '' : 's'}</b> of propagation before it is ready to plant.</div>` + row('New propagation start', diFmt(p.propagationStart)) + (orig ? row('Original start (planned date)', diFmt(orig)) : '')));
@@ -1814,7 +1815,7 @@ function diRender() {
   if (h) out.push(box('ok', 'Harvest', row('New projected harvest', diFmt(h.earliest) + ' \u2192 ' + diFmt(h.latest)) + (ph && ph.earliest ? row('Original planned harvest', diFmt(ph.earliest) + ' \u2192 ' + diFmt(ph.latest)) : '') + (hs != null ? row('Shift', diShift(hs)) : '') + (h.minDays ? `<div>${esc(h.minDays + '\u2013' + h.maxDays)} days from planting to first harvest.</div>` : '')));
   if (w && (w.state === 'IN_WINDOW' || w.state === 'OUTSIDE_AUTHORIZED' || w.state === 'OUTSIDE_AUTH_REQUIRED')) {
     const need = w.state === 'OUTSIDE_AUTH_REQUIRED';
-    out.push(box(need ? 'crit' : 'ok', w.state === 'IN_WINDOW' ? 'Inside the allowable planting window' : (w.state === 'OUTSIDE_AUTHORIZED' ? 'Outside the window, accepted by a manager' : 'Outside the allowable planting window'), row('Allowable planting dates', w.rangeText) +
+    out.push(box(need ? '' : 'ok', w.state === 'IN_WINDOW' ? 'Inside the allowable planting window' : (w.state === 'OUTSIDE_AUTHORIZED' ? 'Outside the window, accepted by a manager' : 'Outside the allowable planting window'), row('Allowable planting dates', w.rangeText) +
       (need ? `<div>You can keep this date or change it below. Keeping it outside the window needs your written explanation (any wording).</div><label class="field"><span>Explanation for planting on ${esc(diFmt(s.selectedDate))} (required)</span><textarea class="input" id="di-win-reason" rows="2"></textarea></label><button type="button" class="btn btn-primary" onclick="diAccept()">Accept ${esc(diFmt(s.selectedDate))}</button>` : '')));
   } else if (w && w.state === 'NO_WINDOW') out.push('<p class="hint">No allowable planting window is on file for this crop, so nothing restricts this date.</p>');
   out.push(box('', 'Irrigation and harvest will change', s.differsFromPlan
