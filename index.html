@@ -85,6 +85,8 @@ h2[tabindex]:focus { outline: none; }
 .btn:active { background: var(--leaf-soft); }
 .btn-primary { background: var(--leaf); color: #fff; }
 .btn-primary:active { background: #163A2B; }
+.btn-review { background: #1F6FB2; color: #fff; font-weight: 700; border: 1px solid #155A92; }
+.btn-review:active { background: #155A92; }
 .btn[disabled] { opacity: .55; cursor: progress; }
 .btn-back { min-height: 44px; padding: 0 14px 0 10px; }
 .btn-block { width: 100%; }
@@ -1693,7 +1695,7 @@ async function vfPlantSheet(bedId) {
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${startDate}"></label>` +
       `<p class="hint">${startDate ? 'Filled from ' + esc(startFrom) + '. Change it only if the crop went in on another day.' : 'No planting date that has already arrived was found for this bed and cohort, so the box is blank. Enter the real planting date once the crop is in the ground.'}${found0 && found0.completed && found0.completed !== startDate ? ' The activity was marked complete on ' + esc(found0.completed) + '.' : ''}</p>` +
       `<div id="vp-sel">${vpDates(startDate, startDate)}</div>` +
-      `<p style="margin:0 0 10px;"><button type="button" class="btn" id="vp-di">Review planting date impact</button></p>` +
+      `<p style="margin:0 0 10px;"><button type="button" class="btn btn-review" id="vp-di">Review planting date impact</button></p>` +
       `<label class="field"><span>Verification date</span><input class="input" id="vp-vdate" type="date" value="${startDate}" min="${startDate}"></label>` +
       `<p class="hint">Defaults to the actual planting date. Any date on or after it is accepted, so a late or historical verification is not blocked. The system separately records the exact time you submit this.</p>` +
       `<div id="vp-alarm" class="vp-alarm" role="alert" hidden></div>` +
