@@ -1447,9 +1447,10 @@ function renderVerifyBed() {
       <p class="meta">${esc([bed.block, bed.status && titleCase(bed.status), bed.cohortId && bed.crop ? bed.crop + ' (' + bed.cohortId + ')' : ''].filter(Boolean).join(' · '))}</p>
       <div class="group" style="padding:14px 16px"><div class="chips">${info.pendingAll ? `<span class="chip med">${info.pendingAll} waiting for verification</span>` : '<span class="chip">Nothing waiting for verification</span>'}<span class="chip neutral">${nVer} of ${info.hx.length} verified</span></div>
         <p>This bed is past its reset, so its activities come from the activity log.</p></div>
+      <div id="ds-readiness"></div>
       ${vfHxSection(bed)}
       <div class="bucket-head" style="margin-top:14px"><h3>Dispatch</h3></div>${sessHtml}`;
-    syncPickBar(); return;
+    syncPickBar(); loadDirectSeedReadiness(bed); return;   // R_D01 readiness is recorded on a RESERVED bed too, which has no reset checklist (histOnly)
   }
   info.steps.forEach(s => { let gp = groups.find(x => x.name === s.domain); if (!gp) { gp = { name: s.domain, steps: [] }; groups.push(gp); } gp.steps.push(s); });
   const upNext = groups.find(gp => gp.steps.some(s => s.status !== 'COMPLETE'));
