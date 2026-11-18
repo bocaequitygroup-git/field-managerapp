@@ -315,6 +315,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
       <button class="tile" data-act="nav" data-view="view-scouting" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Scouting</button>
     <button class="tile" data-act="nav" data-view="view-packhouse" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Packhouse</button>
     </div>
+    <div id="board-urgent"></div>
     <div class="sec-head"><h2 id="h-board" tabindex="-1">Open field sessions</h2><span class="meta" id="board-meta"></span></div>
     <div id="board-list"></div>
   </section>
@@ -799,9 +800,33 @@ async function loadBoard(opts = {}) {
     const res = await apiCall(ACTIONS.board);
     state.sessions = listOf(res, 'sessions', 'openSessions', 'board').map(normSession);
     renderBoard();
+    loadUrgentScouting();
     ensureCropMap();
     ensureWorkers().catch(() => {});
   } catch (err) { if (!opts.silent) box.innerHTML = errBox(err.message, 'view-board'); else toast(err.message); }
+}
+/* Urgent scouting on the Board: open HIGH/CRITICAL or 'needs action' findings, so the manager sees them without opening Scouting. */
+async function loadUrgentScouting() {
+  try {
+    const res = await apiCall(ACTIONS.scoutFindings);
+    state.scoutFindings = listOf(res, 'findings', 'scoutFindings', 'entries').map(normFinding);
+    renderUrgentScouting();
+  } catch (err) { /* the Board still loads; the urgent strip keeps its last state */ }
+}
+function renderUrgentScouting() {
+  const box = $('#board-urgent'); if (!box) return;
+  const open = (state.scoutFindings || []).filter(f => f.status !== 'RESOLVED' && (f.severity === 'HIGH' || f.severity === 'CRITICAL' || f.requiresAction));
+  if (!open.length) { box.innerHTML = ''; return; }
+  const hi = open.filter(f => f.severity === 'HIGH' || f.severity === 'CRITICAL').length;
+  const top = open.slice().sort((a, b) => sevRank(a.severity) - sevRank(b.severity) || (toDate(b.time) || 0) - (toDate(a.time) || 0)).slice(0, 3);
+  box.innerHTML = `<section class="bucket" aria-label="Urgent scouting">
+    <div class="bucket-head"><h3>Urgent scouting</h3><span class="count">${open.length}</span></div>
+    ${top.map(f => `<div class="item stripe ${sevClass(f.severity)}">
+      <div class="item-top"><span class="item-title">${esc(f.symptom || 'Finding')}</span><span class="item-time">${esc(fmtDateTime(f.time))}</span></div>
+      <p class="sub">${['Bed ' + (f.bedId || '-'), titleCase(f.severity), f.worker && 'by ' + f.worker].filter(Boolean).map(esc).join(', ')}</p>
+    </div>`).join('')}
+    <button class="btn secondary block" type="button" data-act="nav" data-view="view-scouting">All open scouting${hi ? ' (' + hi + ' high or critical)' : ''}</button>
+  </section>`;
 }
 const splitListLocal_ = v => String(v == null ? '' : v).split(',').map(s => s.trim()).filter(Boolean);
 function normSession(s) {
