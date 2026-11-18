@@ -819,15 +819,39 @@ function renderUrgentScouting() {
   if (!open.length) { box.innerHTML = ''; return; }
   const hi = open.filter(f => f.severity === 'HIGH' || f.severity === 'CRITICAL').length;
   const top = open.slice().sort((a, b) => sevRank(a.severity) - sevRank(b.severity) || (toDate(b.time) || 0) - (toDate(a.time) || 0)).slice(0, 3);
-  box.innerHTML = `<section class="bucket" aria-label="Urgent scouting">
-    <div class="bucket-head"><h3>Urgent scouting</h3><span class="count">${open.length}</span></div>
-    ${top.map(f => `<div class="item stripe ${sevClass(f.severity)}">
-      <div class="item-top"><span class="item-title">${esc(f.symptom || 'Finding')}</span><span class="item-time">${esc(fmtDateTime(f.time))}</span></div>
-      <p class="sub">${['Bed ' + (f.bedId || '-'), titleCase(f.severity), f.worker && 'by ' + f.worker].filter(Boolean).map(esc).join(', ')}</p>
+  const plural = open.length === 1 ? '' : 's';
+  box.innerHTML = `<style>@keyframes urgentPulse{0%,100%{box-shadow:0 0 0 0 rgba(192,28,28,.55)}50%{box-shadow:0 0 0 10px rgba(192,28,28,0)}}</style>
+  <section class="urgent-strip" aria-label="Urgent scouting findings" role="alert" style="border:3px solid #C01C1C;background:#FDECEC;border-radius:14px;padding:12px;margin:0 0 14px;animation:urgentPulse 1.6s ease-in-out infinite;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <span aria-hidden="true" style="font-size:22px;line-height:1;">&#9888;</span>
+      <b style="font-size:16px;color:#8A0F0F;flex:1;">URGENT: ${open.length} scouting finding${plural} need${open.length === 1 ? 's' : ''} action</b>
+      <span style="background:#C01C1C;color:#fff;border-radius:999px;padding:2px 10px;font-weight:800;">${open.length}</span>
+    </div>
+    ${top.map(f => `<div style="background:#fff;border-radius:10px;padding:10px;margin-top:6px;border-left:6px solid #C01C1C;">
+      <div style="font-weight:700;">${esc(f.symptom || 'Finding')}</div>
+      <div class="sub">${['Bed ' + (f.bedId || '-'), titleCase(f.severity), f.worker && 'by ' + f.worker].filter(Boolean).map(esc).join(', ')}</div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <button class="btn secondary" type="button" data-act="nav" data-view="view-scouting">Review</button>
+        ${f.exceptionId ? `<button class="btn" type="button" data-urgent-resolve="${esc(f.id)}">Mark resolved</button>` : ''}
+      </div>
     </div>`).join('')}
-    <button class="btn secondary block" type="button" data-act="nav" data-view="view-scouting">All open scouting${hi ? ' (' + hi + ' high or critical)' : ''}</button>
+    <button class="btn secondary block" style="margin-top:8px;" type="button" data-act="nav" data-view="view-scouting">All open scouting${hi ? ' (' + hi + ' high or critical)' : ''}</button>
   </section>`;
 }
+async function resolveUrgent_(findingId) {
+  const f = (state.scoutFindings || []).find(x => x.id === findingId);
+  if (!f || !f.exceptionId) { toast('Open the Scouting tab to resolve this finding.'); return; }
+  try {
+    const r = await apiCall('resolve-exception', { exceptionId: f.exceptionId, notes: 'Resolved from the Board' });
+    if (r && r.ok === false) throw new Error(r.error || 'Could not resolve that finding.');
+    toast('Finding resolved.');
+    await loadUrgentScouting();
+  } catch (err) { toast((err && err.message) || 'Could not resolve that finding.'); }
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-urgent-resolve]');
+  if (b) resolveUrgent_(b.dataset.urgentResolve);
+});
 const splitListLocal_ = v => String(v == null ? '' : v).split(',').map(s => s.trim()).filter(Boolean);
 function normSession(s) {
   return {
