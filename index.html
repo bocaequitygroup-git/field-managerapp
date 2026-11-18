@@ -503,7 +503,7 @@ const ACTIONS = {
   terminateCohort: 'terminate-cohort',
   // verify screen: all of these routes already exist in Code_main.gs
   todayView: 'get-manager-today-view', startSessions: 'start-sessions', overridePostHarvest: 'override-post-harvest',
-  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', checkPlanting: 'check-planting', getDirectSeedReadiness: 'get-direct-seed-readiness', recordDirectSeedReadiness: 'record-direct-seed-readiness', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities', verifyItems: 'verify-items',
+  reviewActivity: 'review-activity', completeCohort: 'complete-cohort', verifyBedReady: 'verify-bed-ready', verifyPlanting: 'verify-planting', checkPlanting: 'check-planting', getDirectSeedReadiness: 'get-direct-seed-readiness', recordDirectSeedReadiness: 'record-direct-seed-readiness', verifyPropagation: 'verify-propagation', verifyActivities: 'verify-activities', verifyItems: 'verify-items', portionCheck: 'portion-check',
   getPlantingSelection: 'get-planting-selection', setPlantingSelection: 'set-planting-selection', authorizeWindow: 'authorize-planting-window'   // date-impact pop-up (all exist in Code_main.gs)
 };
 /* BACKEND CONTRACT (what this app sends and reads; field names are matched loosely, so findingId, Finding_ID and
@@ -1660,6 +1660,48 @@ function vfCrewText(crew) {
   const n = crew.done.length + crew.pending.length;
   return crew.done.length + ' of ' + n + ' worker' + (n === 1 ? '' : 's') + ' finished. Waiting on ' + crew.pending.map(w => w.name + ' (' + w.status + ')').join(', ') + '.';
 }
+/* FIX (problem #3): shapes the server's exact crew for this planting task (check-planting's plantingCrew, built by vpPlantingCrew_
+   in verifyPlanting_hardened.gs) into the same {done:[{name,date,workerId,checked,checkedName}], pending:[{name,status}], checkable}
+   shape ranch_aab.html's plantingCrewView already uses, so "finished" and "checked" are never conflated here either. Only a
+   multi-worker task has portion checks (checkable=true) - a single worker is verifiable as soon as they finish, no portion step.
+   Returns null if the server crew was not loaded (e.g. the check-planting call failed), so callers fall back to the client-only tally. */
+function vfPortionCrewView(srv) {
+  if (!srv || !Array.isArray(srv.completed) || !Array.isArray(srv.pending)) return null;
+  const checkable = (srv.total || (srv.completed.length + srv.pending.length)) > 1;
+  return {
+    checkable: checkable,
+    done: srv.completed.map(c => ({ name: c.workerName || c.workerId, date: c.date || '', workerId: c.workerId || '', checked: !!c.portionChecked, checkedName: c.portionCheckedName || '' })),
+    pending: srv.pending.map(p => ({ name: p.workerName || p.workerId, status: String(p.status || 'ASSIGNED').toUpperCase() === 'ASSIGNED' ? 'assigned, not started' : String(p.status || '').toLowerCase().replace(/_/g, ' ') }))
+  };
+}
+/* Renders the "Planting crew" box: who finished, who is still open, and (for a multi-worker task) whose portion is checked. Mirrors
+   ranch_aab.html's plantingCrewBox. Shows nothing for a single-worker task - it needs no breakdown and no portion-check step. */
+function vfPortionCrewBox(bedId, cohortId, crew) {
+  const n = crew.done.length + (crew.pending ? crew.pending.length : 0);
+  if (n < 2) return '';
+  const rows = crew.done.map(w => {
+    const chip = w.checked ? '<span class="chip chip-ok">Completed and checked' + (w.checkedName ? ' by ' + esc(w.checkedName) : '') + '</span>'
+      : (crew.checkable ? '<span class="chip chip-warn">Finished, awaiting your check</span>' : '<span class="chip chip-ok">Finished</span>');
+    const btn = (crew.checkable && !w.checked && w.workerId) ? `<button type="button" class="btn btn-outline" onclick="vfPortionCheck('${esc(bedId)}','${esc(cohortId)}','${esc(w.workerId)}')">Check this portion</button>` : '';
+    return `<div class="row"><span>\u2713 ${esc(w.name)}${w.date ? ' \u00b7 finished ' + esc(w.date) : ''}</span><span>${chip} ${btn}</span></div>`;
+  }).concat((crew.pending || []).map(p => `<div class="row"><span>\u2026 ${esc(p.name)}</span><span><span class="chip chip-warn">${esc(p.status)}</span></span></div>`)).join('');
+  const uncheckedN = crew.done.filter(w => !w.checked).length;
+  const needsAttn = !!((crew.pending && crew.pending.length) || (crew.checkable && uncheckedN));
+  let why;
+  if (crew.pending && crew.pending.length) why = 'Waiting for completion sign-off from all assigned workers. Verification is locked until everyone finishes, or you Clear / Reassign the open one.';
+  else if (crew.checkable && uncheckedN) why = 'Check each finished worker\u2019s portion below. Verify planting unlocks once every assigned worker\u2019s portion is checked.';
+  else why = 'Every assigned worker has finished' + (crew.checkable ? ' and had their portion checked' : '') + '. You can verify once for the whole cohort.';
+  return `<div class="vp-alarm ${needsAttn ? '' : 'ok'}" style="margin:8px 0;"><b>Planting crew \u00b7 ${crew.done.length} of ${n} finished${crew.checkable ? ' \u00b7 ' + (crew.done.length - uncheckedN) + ' checked' : ''}</b>${rows}<div class="hint" style="margin-top:4px;">${why}</div></div>`;
+}
+/* Checks ONE worker's finished planting portion (Portion_Checked_By/Date). Separate from Verify planting itself - checking a portion
+   never signs off or writes Actual_DOB; it only clears the gate so the team can eventually be verified once, together. */
+async function vfPortionCheck(bedId, cohortId, workerId) {
+  try {
+    await apiCall(ACTIONS.portionCheck || 'portion-check', { items: [{ bedId, cohortId, activity: 'Transplanting', workerId }] });
+    toast('Portion checked.');
+  } catch (e) { toast((e && e.message) || 'Could not check this portion.', 7000); }
+  vfPlantSheet(bedId);   // reload the sheet so the crew box and the Verify action reflect the new state
+}
 function vfPlantingDate(bed) {
   const mine = r => { const c = String(g(r, 'cohortId', 'cohort') || ''); return !c || !bed.cohortId || c === bed.cohortId; };
   const isPlant = r => VF_PLANT_DATE_NAMES.includes(String(g(r, 'taskType', 'activity', 'activityName') || '').trim().toLowerCase());
@@ -1691,15 +1733,30 @@ async function vfPlantSheet(bedId) {
   { const cw = vfPlantingCrew(bed); if (cw.pending.length) { openSheet({ title: 'Verify planting', body: '<div class="vp-alarm crit" role="alert"><b>Locked: not every assigned worker has finished.</b> ' + esc(vfCrewText(cw)) + ' Planting is verified once, after all of them finish. To release it sooner, Clear or Reassign the open task on the Board.</div>', actions: [] }); return; } }
   openSheet({ title: 'Verify planting', body: '<p class="hint">Loading the planting details for bed ' + esc(bed.id) + '\u2026</p>', actions: [] });
   const t = new Date(), today = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');   // local day, not UTC
-  /* What the manager SELECTED when assigning the planting (server: PlantingSelection.gs). Read-only; if it cannot be read, verification still works. */
-  let sel = null, vd = null, ref0 = null;
-  try { const r0 = await apiCall(ACTIONS.checkPlanting, { cohortId: bed.cohortId }); sel = (r0 && (r0.selection || (r0.data && r0.data.selection))) || null; vd = (r0 && (r0.verificationDefault || (r0.data && r0.data.verificationDefault))) || null; ref0 = (r0 && (r0.reference || (r0.data && r0.data.reference))) || null; } catch (e) { sel = null; vd = null; }
+  /* What the manager SELECTED when assigning the planting (server: PlantingSelection.gs), and the per-worker portion-check state
+     (server: VerificationSnapshot.gs / vpPlantingCrew_ via check-planting's plantingCrew). Read-only; if the call fails we say so
+     below instead of silently showing "none recorded" - a fetch failure is not the same thing as nothing having been recorded. */
+  let sel = null, vd = null, ref0 = null, cpCrew = null, loadFailed = false;
+  try {
+    const r0 = await apiCall(ACTIONS.checkPlanting, { cohortId: bed.cohortId });
+    sel = (r0 && (r0.selection || (r0.data && r0.data.selection))) || null;
+    vd = (r0 && (r0.verificationDefault || (r0.data && r0.data.verificationDefault))) || null;
+    ref0 = (r0 && (r0.reference || (r0.data && r0.data.reference))) || null;
+    cpCrew = (r0 && (r0.plantingCrew || (r0.data && r0.data.plantingCrew))) || null;
+  } catch (e) { sel = null; vd = null; ref0 = null; cpCrew = null; loadFailed = true; }
   const selDate = (sel && sel.selectedDate) || (ref0 && ref0.selectedDate) || '';
-  const found = vfPlantingDate(bed), found0 = found, crew0 = vfPlantingCrew(bed);
-  /* Default: the selected date once it has arrived; else the scheduled / completed day only if it is not in the future; else blank.
-     A future date is never pre-filled: the crop cannot be in the ground yet and the server refuses it. */
+  const found = vfPlantingDate(bed), found0 = found;
+  // crew0: prefer the server's exact crew + portion-check state (cpCrew, from vpPlantingCrew_) over the client-only tally
+  // (vfPlantingCrew), which only knows who finished and has no idea whether a finished portion has been checked.
+  const crew0 = vfPortionCrewView(cpCrew) || vfPlantingCrew(bed);
+  const crewMultiWorker = (crew0.done.length + (crew0.pending ? crew0.pending.length : 0)) > 1;
+  const crewUnchecked = (crew0.checkable ? crew0.done.filter(w => !w.checked) : []);
+  const crewReadyToVerify = !crew0.checkable || crewUnchecked.length === 0;
+  /* Default: the server's rule (psVerificationDefault_, PlantingSelection.gs) - already verified -> Actual_DOB, else the manager-selected
+     date, even one still ahead (the manager must change it to the real date; a future date is now refused at submit time unless overridden -
+     see the FUTURE_ACTUAL_DOB fix in verifyPlanting_hardened.gs). It is a starting point to correct, never an assumption that planting happened. */
   let startDate = '', startFrom = '';
-  if (vd) { startDate = vd.date || ''; startFrom = vd.fromText || ''; }   // ONE default: the server's (PlantingSelection.gs). The local lookup below only runs if the server could not answer.
+  if (vd) { startDate = vd.date || ''; startFrom = vd.fromText || ''; }
   /* ONE dates block, four fixed names: Planned DOB, Manager-selected planting date (reference only), ACTUAL planting date (what is verified), Verification date. */
   const vpIsoOk = x => /^\d{4}-\d{2}-\d{2}$/.test(x || '');
   const vpDiff = (a, b) => Math.round((Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10)) - Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10))) / 86400000);
@@ -1710,30 +1767,41 @@ async function vfPlantSheet(bedId) {
     if (selDate) {
       selSub = 'Chosen when the planting was assigned' + (sel.selectedByName ? ' by ' + esc(sel.selectedByName) : '') + (sel.basis === 'SESSION_FALLBACK' ? ' (taken from the task schedule; no selection record yet)' : '') + '.';
       if (sel.exceptionAccepted) selSub += ' Outside the allowable window and accepted' + (sel.exceptionReason ? ': ' + esc(sel.exceptionReason) : '') + '.';
-      if (selDate > today) selSub += ' This day has not arrived yet; it is a reference only and is never used as the actual date.';
+      if (selDate > today) selSub += ' This day has not arrived yet. It is shown here as a reference, and is never assumed to be the actual date - the manager must still confirm or correct it below.';
     }
     const act = [];
     if (vpIsoOk(dob)) { if (planned) act.push(vpRel(planned, dob, 'the planned DOB')); if (selDate) act.push(vpRel(selDate, dob, 'the manager-selected date')); if (dob > today) act.push('<b>In the future.</b> The crop cannot be in the ground yet; verifying needs a manager override explanation.'); }
     const vd = vpIsoOk(vdate) && vpIsoOk(dob) && vdate < dob ? '<b>Cannot be before the actual planting date.</b>' : (vpIsoOk(vdate) && vpIsoOk(dob) && vdate > dob ? 'Verified ' + vpRel(dob, vdate, 'the planting day') + '.' : '');
-    return '<div class="sum">' + row('Planned DOB (original plan)', planned ? esc(planned) : 'none on record') + row('Manager-selected planting date', selDate ? esc(selDate) : 'none recorded', selSub) +
+    // FIX (problem #1): a failed fetch is shown as "could not load", never as "none recorded" - those are not the same thing, and the
+    // earlier wording let a manager read a load failure as proof nothing was ever selected.
+    const plannedCell = loadFailed ? 'could not load \u2013 <a href="#" onclick="vfPlantSheet(\'' + esc(bed.id) + '\');return false;">try again</a>' : (planned ? esc(planned) : 'none on record');
+    const selCell = loadFailed ? 'could not load \u2013 <a href="#" onclick="vfPlantSheet(\'' + esc(bed.id) + '\');return false;">try again</a>' : (selDate ? esc(selDate) : 'none recorded');
+    return '<div class="sum">' + row('Planned DOB (original plan)', plannedCell) + row('Manager-selected planting date', selCell, selSub) +
       row('ACTUAL planting date (verified here)', vpIsoOk(dob) ? esc(dob) : 'not entered yet', act.filter(Boolean).join(' '), true) + row('Verification date', vpIsoOk(vdate) ? esc(vdate) : 'defaults to the actual planting date', vd) + '</div>';
   };
   openSheet({
     title: 'Verify planting',
     body: sumRows([['Bed', bed.id], ['Cohort', bed.cohortId], ['Crop', bed.crop]]) +
-      (crew0.done.length > 1 ? `<div class="vp-alarm ok">All ${crew0.done.length} assigned workers have finished. Verify once for the whole cohort.</div>` : '') +
+      (loadFailed ? '<div class="vp-alarm crit" role="alert">Could not load this cohort\u2019s saved planting selection or crew status. The dates and crew info below may be incomplete. <a href="#" onclick="vfPlantSheet(\'' + esc(bed.id) + '\');return false;">Try again</a>.</div>' : '') +
+      vfPortionCrewBox(bed.id, bed.cohortId, crew0) +
       `<label class="field"><span>Actual planting date</span><input class="input" id="vp-date" type="date" value="${startDate}"></label><label class=\"vp-confirm\" style=\"display:flex;gap:8px;align-items:center;margin:-4px 0 10px;font-weight:600;\"><input type=\"checkbox\" id=\"vp-confirm\"> I confirm the crop went in on this date</label>` +
-      `<p class="hint">${startDate ? 'Suggested from ' + esc(startFrom) + '. Confirm it below, or enter the day the crop went in. The manager-selected date is never used here.' : 'No planting date that has already arrived was found for this bed and cohort, so the box is blank. Enter the real planting date once the crop is in the ground.'}${found0 && found0.completed && found0.completed !== startDate ? ' The activity was marked complete on ' + esc(found0.completed) + '.' : ''}</p>` +
+      `<p class="hint">${startDate ? 'Suggested from ' + esc(startFrom) + '. Confirm it below, or correct it to the day the crop actually went in.' : 'No planting date was found to suggest for this bed and cohort, so the box is blank. Enter the real planting date once the crop is in the ground.'}${found0 && found0.completed && found0.completed !== startDate ? ' The planting activity was marked complete on ' + esc(found0.completed) + ' - that is when the worker finished their task, not necessarily when the crop physically went into the ground. Confirm the actual date yourself.' : ''}</p>` +
       `<div id="vp-sel">${vpDates(startDate, startDate)}</div>` +
       `<p style="margin:0 0 10px;"><button type="button" class="btn btn-review" id="vp-di">Review planting date impact</button></p>` +
       `<label class="field"><span>Verification date</span><input class="input" id="vp-vdate" type="date" value="${startDate}" min="${startDate}"></label>` +
-      `<p class="hint">Defaults to the actual planting date. Any date on or after it is accepted, so a late or historical verification is not blocked. The system separately records the exact time you submit this.</p>` +
+      `<p class="hint">The day you are signing off on this verification. Defaults to the actual planting date; any later date is accepted (a late or historical sign-off is not blocked), but it can never be before the actual planting date. The exact submission time is recorded separately.</p>` +
       `<div id="vp-alarm" class="vp-alarm" role="alert" hidden></div>` +
       `<div id="vp-ov" hidden><label class="field"><span>Manager override: explain why this rule should not apply (any wording, required)</span><textarea class="input" id="vp-ov-reason" rows="2"></textarea></label></div>` +
       `<div id="vp-win" hidden><label class="field"><span>Explanation for accepting a planting date outside the allowable window (required)</span><textarea class="input" id="vp-win-reason" rows="2"></textarea></label></div>` +
       `<div id="vp-dev" hidden><label class="field"><span>Reason for date change (differs from selected/planned date)</span><textarea class="input" id="vp-dev-reason" rows="2"></textarea></label></div>` +
-      '<p class="hint">This writes the planting date, starts the crop clock and irrigation schedule, and moves the bed to Planted.</p>',
-    actions: [{ label: 'Verify planting', primary: true, progress: 'Verifying planting for bed ' + bed.id + '\u2026', done: 'Planting verified. Actual planting date recorded.', run: async (step) => {
+      // FIX (problem #5): the bed only passes through PLANTED on its way to GROWING (verifyPlanting_hardened.gs R04 then R05); that is
+      // also the final state the cohort enters (Cohort_Status ACTIVE, Current_Stage Growing), not "Planted".
+      '<p class="hint">This records the actual planting date as Actual DOB, starts the crop clock and irrigation schedule from it, and moves the bed from Reserved through Planted to Growing.</p>',
+    actions: [{ label: 'Verify planting', primary: true, disabled: !crewReadyToVerify,
+      progress: 'Verifying planting for bed ' + bed.id + '\u2026', done: 'Planting verified. Actual planting date recorded.', run: async (step) => {
+      // FIX (problem #3): "everyone finished" is not "ready to verify" - with more than one worker, every finished portion must be
+      // checked first (the server enforces this too, PLANTING_PORTIONS_NOT_CHECKED, but we should not even let the manager get that far).
+      if (!crewReadyToVerify) throw apiError('Check every finished worker\u2019s portion above before verifying planting for the whole cohort.', 'PLANTING_PORTIONS_NOT_CHECKED');
       const dob = ($('#vp-date').value || '').trim();
       if (!$('#vp-confirm') || !$('#vp-confirm').checked) throw apiError('Confirm the actual planting date (tick the box) or enter the day the crop went in before verifying.', 'INPUT');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) throw apiError('Enter a valid planting date (the box is empty or not a real date).', 'INPUT');
@@ -2063,7 +2131,7 @@ function openSheet({ title, body, actions }) {
   const dlg = $('#sheet');
   $('#sheet-body').innerHTML = `<h3 id="sheet-title">${esc(title)}</h3>
     <div id="sheet-main">${body}<div class="form-error" id="sheet-error" role="alert" hidden></div>
-    <div class="sheet-actions">${actions.map((a, i) => `<button type="button" class="btn ${a.primary ? 'btn-primary' : ''}" data-sheet="${i}">${esc(a.label)}</button>`).join('')}
+    <div class="sheet-actions">${actions.map((a, i) => `<button type="button" class="btn ${a.primary ? 'btn-primary' : ''}" data-sheet="${i}"${a.disabled ? ' disabled aria-disabled="true"' : ''}>${esc(a.label)}</button>`).join('')}
     <button type="button" class="btn" data-sheet="cancel">Cancel</button></div></div>
     <div id="sheet-status" class="sheet-status" hidden></div>`;
   sheetBusy = false;
