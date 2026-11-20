@@ -342,7 +342,8 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
   <!-- irrigation zone sign-off (ACT_013) -->
   <section id="view-zone" class="view" hidden aria-labelledby="h-zone">
     <div class="viewbar"><button class="btn btn-back" data-act="back" type="button">Board</button><h2 id="h-zone" tabindex="-1">Zone sign-off</h2></div>
-    <p class="meta" style="margin-bottom:12px;">Zone traces that workers recorded with ACT_013 wait here. Signing off sets that bed&rsquo;s irrigation zone and releases the zone lock for that bed only. The worker&rsquo;s zone is already selected; change it only if you disagree. A zone already on file is never overwritten. Rejecting a trace changes nothing.</p>
+    <p class="meta" style="margin-bottom:12px;">Zone traces that workers recorded with ACT_013 wait here. Signing off sets that bed&rsquo;s irrigation zone and releases the zone lock for that bed only. The worker&rsquo;s zone is already selected; change it only if you disagree. A zone already on file is never overwritten (that is recorded as a conflict). Rejecting a trace changes nothing. Every decision stays in History.</p>
+    <div id="zone-controls"></div>
     <div id="zone-list"></div>
   </section>
 
@@ -2332,7 +2333,7 @@ function confirmVerifyComplete(i) {
    The count is polled in the background so the header button, board tile and banner turn red on every screen.
    ========================================================================== */
 const ZS_ZONES = ['IRR-Z01', 'IRR-Z02', 'IRR-Z03', 'IRR-Z04', 'IRR-Z05', 'IRR-Z06', 'IRR-Z07'];
-const ZS = { items: [], loaded: false, loading: false, polling: false, last: 0, drafts: {} };
+const ZS = { items: [], loaded: false, loading: false, polling: false, last: 0, drafts: {}, tab: 'pending', hist: [], hLoaded: false, hStatus: '', hQuery: '' };
 const ZS_TITLE0 = document.title;
 function zsDraft(id) {
   if (!ZS.drafts[id]) {
@@ -2363,12 +2364,65 @@ async function zsFetch() {
 async function zsLoad() {
   const box = $('#zone-list'); ZS.loading = true;
   if (!ZS.loaded) box.innerHTML = skeleton(2);
-  try { ZS.items = await zsFetch(); ZS.loaded = true; ZS.last = Date.now(); zsRender(); }
+  try {
+    ZS.items = await zsFetch(); ZS.loaded = true; ZS.last = Date.now();
+    if (ZS.tab === 'history') { ZS.hist = listOf(await apiCall('get-zone-trace-history', {}), 'traces', 'items', 'history'); ZS.hLoaded = true; }
+    zsRender();
+  }
   catch (err) { box.innerHTML = errBox(err.message, 'view-zone'); }
   ZS.loading = false; zsPaintCount();
 }
+async function zsSetTab(tab) {
+  ZS.tab = tab; zsRender();
+  if (tab === 'history' && !ZS.hLoaded) {
+    const box = $('#zone-list'); box.innerHTML = skeleton(2);
+    try { ZS.hist = listOf(await apiCall('get-zone-trace-history', {}), 'traces', 'items', 'history'); ZS.hLoaded = true; }
+    catch (err) { box.innerHTML = errBox(err.message, 'view-zone'); return; }
+    zsRender();
+  }
+}
+/* History / audit view: every reviewed trace stays on file. Newest first; filters are applied here on the loaded list. */
+const ZS_STATUS_LABEL = { VERIFIED: 'Approved', REJECTED: 'Rejected', CONFLICT: 'Conflict', UNRESOLVED: 'Inconclusive' };
+const ZS_STATUS_CHIP = { VERIFIED: '', REJECTED: ' crit', CONFLICT: ' high', UNRESOLVED: ' neutral' };
+function zsControls() {
+  const c = $('#zone-controls'); if (!c) return;
+  const tabBtn = (t, label) => '<button type="button" data-act="zs-tab" data-tab="' + t + '" aria-pressed="' + (ZS.tab === t) + '">' + label + '</button>';
+  let h = '<div class="seg" role="group" aria-label="Zone sign-off view">' + tabBtn('pending', 'Pending sign-off' + (ZS.loaded && ZS.items.length ? ' (' + ZS.items.length + ')' : '')) + tabBtn('history', 'History / audit log') + '</div>';
+  if (ZS.tab === 'history') {
+    h += '<div class="seg" role="group" aria-label="Outcome filter">' + [['', 'All'], ['VERIFIED', 'Approved'], ['REJECTED', 'Rejected'], ['CONFLICT', 'Conflict'], ['UNRESOLVED', 'Inconclusive']]
+      .map(x => '<button type="button" data-act="zs-hstatus" data-s="' + x[0] + '" aria-pressed="' + (ZS.hStatus === x[0]) + '">' + x[1] + '</button>').join('') + '</div>' +
+      '<label class="field"><span>Find by bed, zone or worker</span><input class="input" id="zs-hq" data-zs-hq maxlength="40" autocomplete="off" placeholder="e.g. B4-54 or IRR-Z06" value="' + esc(ZS.hQuery) + '"></label>';
+  }
+  const had = document.activeElement && document.activeElement.id === 'zs-hq';
+  c.innerHTML = h;
+  if (had) { const q = $('#zs-hq'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+}
+function zsRenderHistory() {
+  const box = $('#zone-list'), q = ZS.hQuery.trim().toUpperCase();
+  const list = ZS.hist.filter(t => (!ZS.hStatus || t.Review_Status === ZS.hStatus) &&
+    (!q || [t.Bed_ID, t.Worker_Recorded_Zone, t.Final_Applied_Zone, t.Submitted_By, t.Reviewed_By].some(v => String(v || '').toUpperCase().indexOf(q) >= 0)));
+  if (!list.length) { box.innerHTML = empty('Nothing here', ZS.hist.length ? 'No reviewed traces match that filter.' : 'No zone traces have been reviewed yet.'); return; }
+  const color = { VERIFIED: 'var(--low)', REJECTED: 'var(--crit)', CONFLICT: 'var(--high)', UNRESOLVED: 'var(--muted)' };
+  box.innerHTML = list.map(t => {
+    const st = String(t.Review_Status || ''), prop = String(t.Worker_Recorded_Zone || '').trim(), raw = String(t.Observed_Zone_Raw || '').trim();
+    const applied = String(t.Final_Applied_Zone || '').trim();
+    const proposed = prop ? esc(prop) : raw ? '“' + esc(raw) + '” (not a recognized zone)' : 'no zone (inconclusive)';
+    const result = applied ? 'Applied <b>' + esc(applied) + '</b>' : st === 'VERIFIED' ? 'Applied (zone not recorded)' : 'Not applied — ' + esc((ZS_STATUS_LABEL[st] || st).toLowerCase());
+    const sub = (t.Submitted_At ? ' · ' + esc(fmtWhen(t.Submitted_At)) : '');
+    const rev = st === 'UNRESOLVED' ? '<p class="sub"><b>Manager:</b> no review needed (nothing to sign off)</p>'
+      : '<p class="sub"><b>Manager:</b> ' + esc(t.Reviewed_By || '—') + (t.Reviewed_At ? ' · ' + esc(fmtWhen(t.Reviewed_At)) : '') + '</p>';
+    return '<div class="zs-card" style="border-left-color:' + (color[st] || 'var(--line)') + ';"><h3>' + esc(t.Bed_ID || '') + ' <span class="sub">· cohort ' + esc(t.Cohort_ID || '—') + '</span> <span class="chip' + (ZS_STATUS_CHIP[st] || '') + '">' + esc(ZS_STATUS_LABEL[st] || st) + '</span></h3>' +
+      '<p class="sub"><b>Worker proposed</b> ' + proposed + ' → ' + result + '</p>' +
+      '<p class="sub"><b>Worker:</b> ' + esc(t.Submitted_By || '—') + sub + '</p>' + rev +
+      (t.Line_Notes ? '<p class="sub"><b>Line / emitter notes:</b> ' + esc(t.Line_Notes) + '</p>' : '') +
+      (t.Review_Reason ? '<p class="sub"><b>Reason:</b> ' + esc(t.Review_Reason) + '</p>' : '') +
+      (t.Conflict_Flag && t.Conflict_Flag !== t.Review_Reason ? '<div class="zs-warn">' + esc(t.Conflict_Flag) + '</div>' : '') + '</div>';
+  }).join('');
+}
 function zsRender() {
   const box = $('#zone-list'); if (!box) return;
+  zsControls();
+  if (ZS.tab === 'history') { zsRenderHistory(); return; }
   if (!ZS.items.length) { box.innerHTML = empty('Nothing waiting', 'No zone traces are waiting for sign-off.'); return; }
   box.innerHTML = ZS.items.map(t => {
     const id = String(t.Trace_ID || ''), d = zsDraft(id), e = esc(id);
@@ -2402,10 +2456,14 @@ async function zsApprove(id) {
   if (d.busy || !t) return;
   if (ZS_ZONES.indexOf(d.zone) < 0) { d.err = 'Choose one of IRR-Z01 to IRR-Z07.'; zsRender(); return; }
   d.busy = true; d.err = ''; d.conflict = ''; zsRender();
-  try { await apiCall('verify-zone-trace', { traceId: id, zone: d.zone }); toast('Bed ' + (t.Bed_ID || '') + ' signed off to ' + d.zone + '.'); zsDrop(id); }
+  try { await apiCall('verify-zone-trace', { traceId: id, zone: d.zone }); ZS.hLoaded = false; toast('Bed ' + (t.Bed_ID || '') + ' signed off to ' + d.zone + '.'); zsDrop(id); }
   catch (e) {
     d.busy = false;
-    if (e.code === 'ALREADY_VERIFIED' || e.code === 'ZONE_CONFLICT_WITH_RECORD') d.conflict = e.message || 'This bed already has a zone on file.';
+    if (e.code === 'ZONE_CONFLICT_WITH_RECORD' || e.code === 'TRACE_CONFLICT') {
+      // The server closed this trace as CONFLICT (nothing was changed on the bed). It leaves the pending list and stays in History.
+      ZS.hLoaded = false; toast('Conflict on bed ' + (t.Bed_ID || '') + ': ' + (e.message || 'a different zone is already on file') + ' Recorded in History.'); zsDrop(id); return;
+    }
+    if (e.code === 'ALREADY_VERIFIED') d.conflict = e.message || 'This trace was already signed off.';
     else d.err = e.message || 'Could not sign off this trace.';
     zsRender();
   }
@@ -2415,11 +2473,11 @@ async function zsReject(id) {
   if (d.busy) return;
   if (!reason) { d.err = 'Enter why this trace is being rejected.'; zsRender(); return; }
   d.busy = true; d.err = ''; zsRender();
-  try { await apiCall('reject-zone-trace', { traceId: id, reason }); toast('Trace rejected. The bed zone was not changed.'); zsDrop(id); }
+  try { await apiCall('reject-zone-trace', { traceId: id, reason }); ZS.hLoaded = false; toast('Trace rejected. The bed zone was not changed.'); zsDrop(id); }
   catch (e) { d.busy = false; d.err = e.message || 'Could not reject this trace.'; zsRender(); }
 }
 document.addEventListener('change', e => { const el = e.target.closest && e.target.closest('[data-zs-zone]'); if (el) { const d = zsDraft(el.dataset.zsZone); d.zone = el.value; d.err = ''; zsRender(); } });
-document.addEventListener('input', e => { const el = e.target.closest && e.target.closest('[data-zs-reason]'); if (el) zsDraft(el.dataset.zsReason).reason = el.value; });
+document.addEventListener('input', e => { const el = e.target.closest && e.target.closest('[data-zs-reason]'); if (el) zsDraft(el.dataset.zsReason).reason = el.value; const q = e.target.closest && e.target.closest('[data-zs-hq]'); if (q) { ZS.hQuery = q.value; zsRenderHistory(); } });
 /* Background poll: updates the badge, tile, banner and tab title on every screen; toasts when a NEW trace arrives. */
 async function zsPoll() {
   if (!state.managerId || ZS.polling || ZS.loading || document.hidden) return;
@@ -2449,6 +2507,8 @@ document.addEventListener('click', e => {
     case 'logout': logout(); break;
     case 'refresh': (LOADERS[ui.view] || (() => {}))(); break;
     case 'nav': switchView(t.dataset.view); break;
+    case 'zs-tab': zsSetTab(t.dataset.tab); break;
+    case 'zs-hstatus': ZS.hStatus = t.dataset.s; zsRender(); break;
     case 'zs-approve': zsApprove(t.dataset.id); break;
     case 'zs-reject-open': { const d = zsDraft(t.dataset.id); d.rejecting = true; d.reason = ''; d.err = ''; zsRender(); break; }
     case 'zs-reject-cancel': { const d = zsDraft(t.dataset.id); d.rejecting = false; d.reason = ''; d.err = ''; zsRender(); break; }
