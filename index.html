@@ -108,6 +108,22 @@ h2[tabindex]:focus { outline: none; }
 .vp-alarm b { font-weight: 700; }
 .form-error { color: var(--crit); background: var(--crit-soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; }
 
+/* ---------- zone sign-off (ACT_013): urgent, so it is red everywhere it appears ---------- */
+.zs-badge { display: inline-block; min-width: 20px; padding: 0 7px; margin-left: 6px; border-radius: 999px; background: #fff; color: var(--crit); font-weight: 800; font-size: 13px; line-height: 20px; text-align: center; }
+.zs-badge:empty { display: none; }
+.btn-hd.alert { background: var(--crit); color: #fff; border-color: #fff; animation: zsPulse 1.6s infinite; }
+.tile.alert { background: var(--crit); border-color: var(--crit); color: #fff; animation: zsPulse 1.6s infinite; }
+.tile.alert .ico { color: #fff; }
+.tile.alert .zs-badge { margin-left: 0; }
+.zs-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: var(--crit); color: #fff; padding: 10px 16px; font-weight: 700; }
+.zs-banner[hidden] { display: none; }
+.zs-banner .btn { background: #fff; color: var(--crit); border-color: #fff; min-height: 40px; }
+.zs-card { background: var(--paper); border: 1.5px solid var(--line); border-left: 6px solid var(--crit); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+.zs-card h3 { margin: 0 0 2px; font-size: 19px; }
+.zs-warn { background: var(--med-soft); color: var(--med); border-radius: 10px; padding: 10px 12px; margin-top: 10px; font-weight: 600; }
+@keyframes zsPulse { 0% { box-shadow: 0 0 0 0 rgba(179,38,30,.6); } 70% { box-shadow: 0 0 0 10px rgba(179,38,30,0); } 100% { box-shadow: 0 0 0 0 rgba(179,38,30,0); } }
+@media (prefers-reduced-motion: reduce) { .btn-hd.alert, .tile.alert { animation: none; } }
+
 /* ---------- board ---------- */
 .nav-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 22px; }
 .tile {
@@ -279,11 +295,13 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
     <div class="who"><b id="hd-name"></b><span id="hd-role"></span></div>
     <div class="hd-btns">
       <button class="btn-hd" data-act="back" id="btn-board" type="button" hidden>Board</button>
+      <button class="btn-hd" data-act="nav" data-view="view-zone" id="btn-zone" type="button">Zone sign-off<span class="zs-badge" id="zs-badge-hd"></span></button>
       <button class="btn-hd" data-act="refresh" id="btn-refresh" type="button">Refresh</button>
       <button class="btn-hd" data-act="logout" id="btn-logout" type="button">Log out</button>
     </div>
   </div>
 </header>
+<div id="zs-banner" class="zs-banner" role="alert" hidden></div>
 <div id="demo-strip" hidden>Demo mode with sample data. Set WEB_APP_URL in the script to connect to your WorkerApp backend.</div>
 
 <main>
@@ -307,6 +325,7 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
   <section id="view-board" class="view" hidden aria-labelledby="h-board">
     <div class="nav-grid" id="board-nav">
       <button class="tile primary" data-act="nav" data-view="view-queue" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg>Today</button>
+      <button class="tile" id="tile-zone" data-act="nav" data-view="view-zone" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3c3 4 6 7 6 11a6 6 0 0 1-12 0c0-4 3-7 6-11z"/><path d="m9.5 14.5 2 2 3.5-4"/></svg><span>Zone sign-off<span class="zs-badge" id="zs-badge-tile"></span></span></button>
       <button class="tile" data-act="nav" data-view="view-harvest-ready" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>Harvest ready</button>
       <button class="tile" data-act="nav" data-view="view-harvest-complete" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2 4 2 4H5"/></svg>Harvested</button>
       <button class="tile" data-act="nav" data-view="view-activity-log" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Activity log</button>
@@ -318,6 +337,13 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
     <div id="board-urgent"></div>
     <div class="sec-head"><h2 id="h-board" tabindex="-1">Open field sessions</h2><span class="meta" id="board-meta"></span></div>
     <div id="board-list"></div>
+  </section>
+
+  <!-- irrigation zone sign-off (ACT_013) -->
+  <section id="view-zone" class="view" hidden aria-labelledby="h-zone">
+    <div class="viewbar"><button class="btn btn-back" data-act="back" type="button">Board</button><h2 id="h-zone" tabindex="-1">Zone sign-off</h2></div>
+    <p class="meta" style="margin-bottom:12px;">Zone traces that workers recorded with ACT_013 wait here. Signing off sets that bed&rsquo;s irrigation zone and releases the zone lock for that bed only. The worker&rsquo;s zone is already selected; change it only if you disagree. A zone already on file is never overwritten. Rejecting a trace changes nothing.</p>
+    <div id="zone-list"></div>
   </section>
 
   <!-- 3. reassignment history -->
@@ -748,8 +774,8 @@ function renderHeader() {
   $('#hd-id').hidden = !on;
   $('#hd-name').textContent = state.managerName || '';
   $('#hd-role').textContent = state.role || '';
-  if (!on) setConn('idle');
-  syncBoardBtn();
+  if (!on) { setConn('idle'); ZS.items = []; ZS.loaded = false; ZS.drafts = {}; }
+  syncBoardBtn(); zsPaintCount();
 }
 function syncBoardBtn() { const b = $('#btn-board'); if (b) b.hidden = !state.managerId || ui.view === 'view-board' || ui.view === 'view-login'; }
 
@@ -764,6 +790,7 @@ const LOADERS = {
   'view-harvest-complete': () => loadHarvestableCohorts(),
   'view-activity-log': () => loadActivityLog(),
   'view-history': () => loadHistory(),
+  'view-zone': () => zsLoad(),
   'view-scouting': () => loadScoutFindings(),
   'view-verify': () => { if (ui.vfSkip && state.vf) { ui.vfSkip = false; renderVerify(); } else { ui.vfSkip = false; loadVerify(); } },
   'view-verify-bed': () => { if (ui.vfSkip) { ui.vfSkip = false; return; } loadVerify({ silent: true }); }
@@ -771,7 +798,7 @@ const LOADERS = {
 function switchView(viewId) {
   $$('.view').forEach(v => { v.hidden = v.id !== viewId; });
   ui.view = viewId;
-  syncBoardBtn(); saveSession();
+  syncBoardBtn(); zsPaintCount(); saveSession();
   window.scrollTo(0, 0);
   const h = $('#' + viewId + ' h2[tabindex]') || $('#' + viewId + ' h2');
   if (h) h.focus({ preventScroll: true });
@@ -2299,6 +2326,119 @@ function confirmVerifyComplete(i) {
 }
 
 /* ==========================================================================
+   ZONE SIGN-OFF (ACT_013). get-zone-trace-queue / verify-zone-trace / reject-zone-trace (Manager/Founder only).
+   Same rules as ranch_aab: the zone must be one of IRR-Z01..IRR-Z07 (no free text); the server refuses to overwrite a zone
+   already on file; nothing here touches commissioning flags or the ZONE_UNVERIFIED override log.
+   The count is polled in the background so the header button, board tile and banner turn red on every screen.
+   ========================================================================== */
+const ZS_ZONES = ['IRR-Z01', 'IRR-Z02', 'IRR-Z03', 'IRR-Z04', 'IRR-Z05', 'IRR-Z06', 'IRR-Z07'];
+const ZS = { items: [], loaded: false, loading: false, polling: false, last: 0, drafts: {} };
+const ZS_TITLE0 = document.title;
+function zsDraft(id) {
+  if (!ZS.drafts[id]) {
+    const t = ZS.items.find(x => String(x.Trace_ID) === String(id));
+    const obs = t ? String(t.Observed_Zone_Canonical || '').trim().toUpperCase() : '';
+    ZS.drafts[id] = { zone: ZS_ZONES.indexOf(obs) >= 0 ? obs : '', busy: false, err: '', conflict: '', rejecting: false, reason: '' };
+  }
+  return ZS.drafts[id];
+}
+function zsPaintCount() {
+  const n = ZS.loaded ? ZS.items.length : 0, signedIn = !!state.managerId;
+  const hd = $('#btn-zone'); if (hd) { hd.hidden = !signedIn; hd.classList.toggle('alert', n > 0); }
+  const b1 = $('#zs-badge-hd'); if (b1) b1.textContent = n ? String(n) : '';
+  const b2 = $('#zs-badge-tile'); if (b2) b2.textContent = n ? String(n) : '';
+  const tile = $('#tile-zone'); if (tile) tile.classList.toggle('alert', n > 0);
+  const ban = $('#zs-banner');
+  if (ban) {
+    const show = signedIn && n > 0 && ui.view !== 'view-zone' && ui.view !== 'view-login';
+    ban.hidden = !show;
+    if (show) ban.innerHTML = '<span>⚠ ' + n + ' irrigation zone trace' + (n > 1 ? 's are' : ' is') + ' waiting for your sign-off. Irrigation on ' + (n > 1 ? 'those beds is' : 'that bed is') + ' held until you approve.</span><button class="btn" type="button" data-act="nav" data-view="view-zone">Review now</button>';
+  }
+  document.title = (signedIn && n ? '(' + n + ') ' : '') + ZS_TITLE0;
+}
+async function zsFetch() {
+  const res = await apiCall('get-zone-trace-queue', {});
+  return listOf(res, 'traces', 'items', 'queue');
+}
+async function zsLoad() {
+  const box = $('#zone-list'); ZS.loading = true;
+  if (!ZS.loaded) box.innerHTML = skeleton(2);
+  try { ZS.items = await zsFetch(); ZS.loaded = true; ZS.last = Date.now(); zsRender(); }
+  catch (err) { box.innerHTML = errBox(err.message, 'view-zone'); }
+  ZS.loading = false; zsPaintCount();
+}
+function zsRender() {
+  const box = $('#zone-list'); if (!box) return;
+  if (!ZS.items.length) { box.innerHTML = empty('Nothing waiting', 'No zone traces are waiting for sign-off.'); return; }
+  box.innerHTML = ZS.items.map(t => {
+    const id = String(t.Trace_ID || ''), d = zsDraft(id), e = esc(id);
+    const obs = String(t.Observed_Zone_Canonical || '').trim(), raw = String(t.Observed_Zone_Raw || '').trim();
+    const when = t.Timestamp ? fmtWhen(t.Timestamp) : '';
+    const mismatch = !!(d.zone && obs && d.zone !== obs);
+    let h = '<div class="zs-card"><h3>' + esc(t.Bed_ID || '') + ' <span class="sub">· cohort ' + esc(t.Cohort_ID || '—') + '</span></h3>' +
+      '<p class="sub">Worker ' + esc(t.Worker_ID || '—') + (when ? ' · submitted ' + esc(when) : '') + '</p>' +
+      '<p class="sub"><b>Worker recorded:</b> ' + (obs ? esc(obs) : raw ? '“' + esc(raw) + '” (not a recognized zone)' : 'nothing recognized') + '</p>' +
+      (t.Line_Notes ? '<p class="sub"><b>Line / emitter notes:</b> ' + esc(t.Line_Notes) + '</p>' : '');
+    if (d.conflict) h += '<div class="zs-warn"><b>Zone conflict: not signed off.</b> ' + esc(d.conflict) + ' Nothing was changed. Check the bed on site, then reject this trace if the recorded zone is wrong.</div>';
+    if (!d.rejecting) {
+      h += '<label class="field" style="margin-top:12px;"><span>Zone to sign off' + (d.zone && d.zone === obs ? ' (as recorded by the worker)' : '') + '</span>' +
+        '<select class="input" data-zs-zone="' + e + '"><option value="">Choose a zone…</option>' + ZS_ZONES.map(z => '<option value="' + z + '"' + (d.zone === z ? ' selected' : '') + '>' + z + '</option>').join('') + '</select></label>';
+      if (mismatch) h += '<p class="sub" style="color:var(--med);">The worker recorded ' + esc(obs) + '. You are signing off ' + esc(d.zone) + '.</p>';
+      if (d.err) h += '<div class="form-error">' + esc(d.err) + '</div>';
+      h += '<div class="qbtns"><button class="btn btn-primary" type="button" data-act="zs-approve" data-id="' + e + '"' + (d.busy || !d.zone ? ' disabled' : '') + '>' + (d.busy ? 'Signing off…' : 'Approve and sign off') + '</button>' +
+        '<button class="btn" type="button" data-act="zs-reject-open" data-id="' + e + '"' + (d.busy ? ' disabled' : '') + '>Reject</button></div>';
+    } else {
+      h += '<label class="field" style="margin-top:12px;"><span>Why is this trace being rejected? (required)</span><textarea class="input" rows="2" maxlength="300" data-zs-reason="' + e + '">' + esc(d.reason) + '</textarea></label>';
+      if (d.err) h += '<div class="form-error">' + esc(d.err) + '</div>';
+      h += '<div class="qbtns"><button class="btn btn-primary" type="button" data-act="zs-reject" data-id="' + e + '"' + (d.busy ? ' disabled' : '') + '>' + (d.busy ? 'Rejecting…' : 'Confirm reject') + '</button>' +
+        '<button class="btn" type="button" data-act="zs-reject-cancel" data-id="' + e + '"' + (d.busy ? ' disabled' : '') + '>Cancel</button></div>';
+    }
+    return h + '</div>';
+  }).join('');
+}
+function zsDrop(id) { ZS.items = ZS.items.filter(x => String(x.Trace_ID) !== String(id)); delete ZS.drafts[id]; zsRender(); zsPaintCount(); }
+async function zsApprove(id) {
+  const d = zsDraft(id), t = ZS.items.find(x => String(x.Trace_ID) === String(id));
+  if (d.busy || !t) return;
+  if (ZS_ZONES.indexOf(d.zone) < 0) { d.err = 'Choose one of IRR-Z01 to IRR-Z07.'; zsRender(); return; }
+  d.busy = true; d.err = ''; d.conflict = ''; zsRender();
+  try { await apiCall('verify-zone-trace', { traceId: id, zone: d.zone }); toast('Bed ' + (t.Bed_ID || '') + ' signed off to ' + d.zone + '.'); zsDrop(id); }
+  catch (e) {
+    d.busy = false;
+    if (e.code === 'ALREADY_VERIFIED' || e.code === 'ZONE_CONFLICT_WITH_RECORD') d.conflict = e.message || 'This bed already has a zone on file.';
+    else d.err = e.message || 'Could not sign off this trace.';
+    zsRender();
+  }
+}
+async function zsReject(id) {
+  const d = zsDraft(id), reason = String(d.reason || '').trim();
+  if (d.busy) return;
+  if (!reason) { d.err = 'Enter why this trace is being rejected.'; zsRender(); return; }
+  d.busy = true; d.err = ''; zsRender();
+  try { await apiCall('reject-zone-trace', { traceId: id, reason }); toast('Trace rejected. The bed zone was not changed.'); zsDrop(id); }
+  catch (e) { d.busy = false; d.err = e.message || 'Could not reject this trace.'; zsRender(); }
+}
+document.addEventListener('change', e => { const el = e.target.closest && e.target.closest('[data-zs-zone]'); if (el) { const d = zsDraft(el.dataset.zsZone); d.zone = el.value; d.err = ''; zsRender(); } });
+document.addEventListener('input', e => { const el = e.target.closest && e.target.closest('[data-zs-reason]'); if (el) zsDraft(el.dataset.zsReason).reason = el.value; });
+/* Background poll: updates the badge, tile, banner and tab title on every screen; toasts when a NEW trace arrives. */
+async function zsPoll() {
+  if (!state.managerId || ZS.polling || ZS.loading || document.hidden) return;
+  ZS.polling = true; ZS.last = Date.now();
+  try {
+    const list = await zsFetch(), old = ZS.items.map(t => String(t.Trace_ID)), first = !ZS.loaded;
+    const fresh = list.filter(t => old.indexOf(String(t.Trace_ID)) < 0);
+    const busy = Object.keys(ZS.drafts).some(k => ZS.drafts[k].busy) || (document.activeElement && /^(TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
+    ZS.items = list; ZS.loaded = true;
+    if (!first && fresh.length) toast('New zone trace waiting for sign-off: bed ' + (fresh[0].Bed_ID || '') + (fresh.length > 1 ? ' and ' + (fresh.length - 1) + ' more' : '') + '.');
+    if (ui.view === 'view-zone' && !busy) zsRender();
+    zsPaintCount();
+  } catch (e) { /* quiet: the badge keeps its last value */ }
+  ZS.polling = false;
+}
+setInterval(() => { if (state.managerId && Date.now() - ZS.last >= (ZS.loaded ? 15000 : 0)) zsPoll(); }, 3000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) zsPoll(); });
+
+/* ==========================================================================
    EVENTS
    ========================================================================== */
 document.addEventListener('click', e => {
@@ -2309,6 +2449,10 @@ document.addEventListener('click', e => {
     case 'logout': logout(); break;
     case 'refresh': (LOADERS[ui.view] || (() => {}))(); break;
     case 'nav': switchView(t.dataset.view); break;
+    case 'zs-approve': zsApprove(t.dataset.id); break;
+    case 'zs-reject-open': { const d = zsDraft(t.dataset.id); d.rejecting = true; d.reason = ''; d.err = ''; zsRender(); break; }
+    case 'zs-reject-cancel': { const d = zsDraft(t.dataset.id); d.rejecting = false; d.reason = ''; d.err = ''; zsRender(); break; }
+    case 'zs-reject': zsReject(t.dataset.id); break;
     case 'back': switchView('view-board'); break;
     case 'retry': (LOADERS[t.dataset.view] || (() => {}))(); break;
     case 'reassign': openReassign(i); break;
