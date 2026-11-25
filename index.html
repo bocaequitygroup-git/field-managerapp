@@ -1947,9 +1947,9 @@ async function vfAssign() {
       const created = listOf(r, 'created'), failed = listOf(r, 'failed'), skipped = listOf(r, 'skipped');
       const why = failed.slice(0, 3).map(f => (g(f, 'activity') || '') + ': ' + (VF_ERR[g(f, 'errorCode', 'code')] || g(f, 'errorCode', 'code') || 'refused')).join('; ');
       if (created.length) { ui.vfSteps = new Set(); step('Refreshing the verification list\u2026 (step 2 of 2)'); await loadVerify({ silent: true }); } else syncVfBar();
-      return created.length + ' assigned' + (skipped.length ? ', ' + skipped.length + ' already open' : '') + (failed.length ? ', ' + failed.length + ' refused (' + why + ')' : '') + '.';
+      return { msg: created.length + ' assigned' + (skipped.length ? ', ' + skipped.length + ' already open' : '') + (failed.length ? ', ' + failed.length + ' refused (' + why + ')' : '') + '.', advisories: advisoriesOf(r) };
     },
-    done: msg => msg
+    done: res => res.msg
   });
 }
 function vfOverrideSheet() {
@@ -2487,6 +2487,29 @@ function renderHarvestComplete() {
  * missed. On an error the form comes back with the message and everything typed is still there. a.progress = text while running (default
  * "<label>…"); a.done = completed message, or a function of run()'s result (no done = a default "completed" message; the sheet never closes by itself); a.keep = stay open after (e.g. "Propagation verified"). */
 let sheetBusy = false;
+/* Irrigation calendar advisory (backend: start-session calendarAdvisory, start-sessions / assign-irrigation advisories[]).
+   The task WAS assigned; this only tells the manager it is not on the calendar. One amber line per bed. An action's run() may return
+   { msg, advisories:[{bedId,date,message}] } and openSheet shows them on the Completed screen. Nothing here blocks or changes the assignment. */
+function advisoryHtml(result) {
+  const list = result && typeof result === 'object' && Array.isArray(result.advisories) ? result.advisories : [];
+  const seen = new Set(), rows = [];
+  list.forEach(a => {
+    const bed = String((a && a.bedId) || ''), key = bed + '|' + String((a && a.date) || '');
+    if (seen.has(key)) return; seen.add(key);
+    const msg = (a && a.message) || ('Bed ' + bed + ' is not on the irrigation calendar' + (a && a.date ? ' for ' + a.date : '') + '. The task was assigned anyway.');
+    rows.push('<div style="margin-top:6px">' + esc(msg) + '</div>');
+  });
+  return rows.length ? '<div class="vp-alarm" role="note" style="text-align:left;margin:14px 0 0"><b>\u26A0 Not on the irrigation calendar</b>' + rows.join('') + '</div>' : '';
+}
+/* Reads advisories from a backend result, whichever shape it came in: advisories[], or calendarAdvisory on each created[] row, or on a single session. */
+function advisoriesOf(r) {
+  const out = [];
+  const add = a => { if (a && (a.message || a.bedId)) out.push({ bedId: g(a, 'bedId', 'bed') || '', date: g(a, 'date') || '', message: g(a, 'message') || '' }); };
+  listOf(r, 'advisories').forEach(add);
+  listOf(r, 'created').forEach(c => add(c && c.calendarAdvisory));
+  if (r && r.calendarAdvisory) add(r.calendarAdvisory);
+  return out;
+}
 function openSheet({ title, body, actions }) {
   const dlg = $('#sheet');
   $('#sheet-body').innerHTML = `<h3 id="sheet-title">${esc(title)}</h3>
@@ -2521,7 +2544,7 @@ function openSheet({ title, body, actions }) {
       const doneMsg = (typeof a.done === 'function' ? a.done(result) : a.done) || ((a.progress || a.label).replace(/\u2026|\.\.\.$/g, '').trim() + ': completed.');
       if (a.keep) { btns.forEach(x => { x.disabled = false; }); toast(doneMsg); }
       else {   /* EVERY finished action ends on a Completed screen; only the manager's OK closes it */
-        st.innerHTML = `<div class="st-tick" aria-hidden="true">✓</div><div class="st-msg" role="status">${esc(doneMsg)}</div><div class="sheet-actions"><button type="button" class="btn btn-primary" data-sheet="ok" id="sheet-ok">OK</button></div>`;
+        st.innerHTML = `<div class="st-tick" aria-hidden="true">✓</div><div class="st-msg" role="status">${esc(doneMsg)}</div>${advisoryHtml(result)}<div class="sheet-actions"><button type="button" class="btn btn-primary" data-sheet="ok" id="sheet-ok">OK</button></div>`;
         const ok = $('#sheet-ok'); if (ok) ok.focus();
       }
     } catch (err) {
