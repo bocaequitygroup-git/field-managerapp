@@ -389,6 +389,83 @@ body.has-bnav #toast { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
   .ops-tile b { font-size: 34px; } .ops-tile span { font-size: 15px; } .ops-bang, .ops-tick { width: 28px; height: 28px; font-size: 17px; }
   .sc-title b { font-size: 20px; } .sc-btn { font-size: 15px; gap: 6px; padding: 0 6px; white-space: nowrap; } .pill { font-size: 15px; padding: 6px 10px; }
 }
+
+/* ==========================================================================
+   VERIFY SCREEN: proposed UI (title block, icon tiles, filter bar, activity cards)
+   ========================================================================== */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.vf-title { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; }
+.vf-badge { width: 56px; height: 56px; border-radius: 50%; background: #2E9B4E; display: grid; place-items: center; flex: none; box-shadow: 0 2px 6px rgba(20,60,35,.3); }
+.vf-badge svg { width: 34px; height: 34px; fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.vf-title h2 { font-size: 36px; line-height: 1.05; font-weight: 800; color: var(--leaf); }
+.vf-title p { font-size: 16px; color: #2C4A3A; margin-top: 2px; line-height: 1.3; }
+.vf-tiles { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; margin: 0 0 12px; }
+.vf-tile { grid-column: span 3; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 10px 4px 8px; border-radius: 14px; background: #EEF3EC; border: 1.5px solid #D2DDD3; color: var(--ink); cursor: pointer; text-align: center; box-shadow: 0 1px 3px rgba(20,40,30,.08); }
+.vf-tile:nth-child(-n+3) { grid-column: span 4; }
+.vf-tile svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; color: var(--leaf); }
+.vf-tile .n { font-size: 34px; line-height: 1.05; font-weight: 800; }
+.vf-tile .l { font-size: 16px; font-weight: 600; line-height: 1.15; overflow-wrap: normal; hyphens: none; }
+.vf-tile:active { background: var(--leaf-soft); }
+.vf-tile[aria-pressed="true"] { background: #DDEBDD; border-color: var(--leaf); box-shadow: inset 0 0 0 1.5px var(--leaf); }
+.vf-bar { display: grid; grid-template-columns: 1.15fr 1fr 1fr auto; align-items: end; background: #F4F6F2; border: 1.5px solid var(--line); border-radius: 16px; padding: 10px 12px; margin: 0 0 14px; }
+.vf-bar .field { margin: 0; padding: 0 10px; min-width: 0; border-left: 1.5px solid var(--line); }
+.vf-bar .field:first-child { padding-left: 0; border-left: 0; }
+.vf-bar .field span { font-size: 15px; font-weight: 800; margin-bottom: 3px; }
+.vf-bar .input { min-height: 44px; padding: 4px 8px; font-size: 16px; font-weight: 600; border-radius: 10px; border-color: #B7C4BA; }
+.vf-dsel { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 0 14px; margin-left: 6px; background: #14442F; color: #fff; border-radius: 14px; cursor: pointer; box-shadow: 0 2px 6px rgba(10,30,20,.25); }
+.vf-dsel svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.vf-dsel select { appearance: none; -webkit-appearance: none; background: transparent; border: 0; color: #fff; font-weight: 800; font-size: 18px; min-height: 48px; padding: 0 2px; cursor: pointer; }
+.vf-dsel select option { color: #16281F; background: #fff; }
+.vf-sechead { display: flex; align-items: center; gap: 12px; background: #1B4A36; color: #fff; border-radius: 14px; padding: 12px 16px; margin: 0 0 10px; }
+.vf-sechead svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.vf-sechead h3 { font-size: 24px; font-weight: 800; flex: 1; }
+.vf-sechead .count { background: #CFEBCB; color: #14442F; font-size: 20px; font-weight: 800; padding: 2px 14px; border-radius: 999px; }
+.vf-acts { display: grid; grid-template-columns: 1fr 1fr 1.35fr; gap: 10px; margin: 0 0 12px; }
+.vf-act { white-space: nowrap; min-height: 52px; border-radius: 12px; border: 1.5px solid var(--line); background: #fff; color: var(--leaf); font-weight: 800; font-size: 18px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; padding: 0 8px; box-shadow: 0 1px 3px rgba(20,40,30,.1); }
+.vf-act svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.vf-act.go { background: #14442F; border-color: #14442F; color: #fff; }
+.vf-act.go[disabled] { opacity: .55; cursor: default; }
+.vf-act:active { background: var(--leaf-soft); } .vf-act.go:active { background: #0E3322; }
+.vf-cards { display: grid; gap: 12px; }
+.vcard { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; align-items: start; background: #fff; border: 1px solid var(--line); border-left: 7px solid #E7A81C; border-radius: 16px; padding: 14px 12px 14px 14px; box-shadow: 0 1px 4px rgba(20,40,30,.1); }
+.vcard input[type=checkbox] { appearance: none; -webkit-appearance: none; width: 30px; height: 30px; margin: 2px 0 0; border: 2.5px solid #2B3B33; border-radius: 8px; background: #fff; cursor: pointer; display: grid; place-content: center; }
+.vcard input[type=checkbox]:checked { background: var(--leaf); border-color: var(--leaf); }
+.vcard input[type=checkbox]:checked::after { content: ""; width: 8px; height: 14px; border: solid #fff; border-width: 0 3px 3px 0; transform: rotate(45deg) translate(-1px, -1px); }
+.vc-title { display: block; font-size: 21px; line-height: 1.2; font-weight: 800; }
+.vc-sub { font-size: 17px; color: #2C4A3A; margin-top: 1px; }
+.vc-pill { display: inline-flex; align-items: center; gap: 6px; margin: 6px 0 4px; padding: 4px 12px 4px 8px; border-radius: 999px; background: #FCE8B8; color: #8A5200; font-weight: 800; font-size: 16px; }
+.vc-pill svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.vc-desc { font-size: 17px; line-height: 1.35; color: #1F3328; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 2px 0 6px; }
+.vc-meta { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 16px; color: #2C3F34; margin-top: 3px; }
+.vc-time { display: flex; gap: 6px; font-size: 16px; color: #2C3F34; align-items: flex-start; }
+.vc-meta > span { display: inline-flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.vc-meta .t, .vc-time .t { min-width: 0; }
+.vc-meta svg, .vc-time svg { margin-top: 2px; }
+.vc-meta svg, .vc-time svg { width: 18px; height: 18px; flex: none; color: #2E7D32; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.vc-meta svg.solid { fill: currentColor; stroke: none; }
+.vc-time { margin-top: 4px; }
+.vc-time .over { color: #C62828; font-weight: 800; }
+.vc-rule { opacity: .75; }
+.vc-ver { font-size: 15px; color: var(--muted); margin-top: 4px; }
+.vc-go { display: flex; align-items: center; gap: 4px; border: 0; background: transparent; padding: 0; cursor: pointer; color: var(--ink); }
+.vc-badge { display: flex; flex-direction: column; align-items: center; gap: 0; background: #E3EDE0; border-radius: 12px; padding: 8px 10px; line-height: 1.15; }
+.vc-badge svg { width: 28px; height: 28px; fill: none; stroke: var(--leaf); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.vc-badge b { font-size: 17px; font-weight: 800; } .vc-badge i { font-style: normal; font-size: 15px; }
+.vc-chev { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 560px) {
+  .vf-bar { grid-template-columns: 1fr 1fr; row-gap: 10px; }
+  .vf-bar .field:nth-child(1) { grid-column: 1 / -1; padding-right: 0; }
+  .vf-bar .field:nth-child(2) { padding-left: 0; border-left: 0; }
+  .vf-dsel { grid-column: 1 / -1; margin-left: 0; justify-content: center; }
+}
+@media (max-width: 460px) {
+  .vf-title h2 { font-size: 30px; } .vf-badge { width: 48px; height: 48px; } .vf-title p { font-size: 15px; }
+  .vf-tile { padding-left: 2px; padding-right: 2px; } .vf-tile .n { font-size: 28px; } .vf-tile .l { font-size: 13px; } .vf-tile svg { width: 26px; height: 26px; }
+  .vf-sechead h3 { font-size: 21px; } .vf-acts { grid-template-columns: 1fr 1fr 1.6fr; gap: 8px; } .vf-act { font-size: 14.5px; gap: 4px; padding: 0 4px; } .vf-act svg { width: 18px; height: 18px; }
+  .vc-pill { font-size: 14px; padding: 3px 10px 3px 7px; } .vc-pill svg { width: 16px; height: 16px; } .vc-meta, .vc-time { font-size: 15px; }
+  .vcard { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; padding: 12px 8px 12px 12px; }
+  .vc-title { font-size: 19px; } .vc-badge { padding: 6px 7px; } .vc-badge svg { display: none; } .vc-badge b { font-size: 15px; } .vc-badge i { font-size: 13px; }
+}
 </style>
 </head>
 <body>
@@ -564,28 +641,22 @@ body.has-bnav #toast { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
 
   <!-- 9. verify: bed list -->
   <section id="view-verify" class="view" hidden aria-labelledby="h-verify">
-    <div class="viewbar"><button class="btn btn-back" data-act="back" type="button">Board</button><h2 id="h-verify" tabindex="-1">Verify</h2></div>
-    <p class="meta" style="margin:-6px 0 14px">Sign off finished work and release beds. Worker logging alone never releases a bed.</p>
-    <div class="seg" id="verify-seg" role="group" aria-label="Filter">
-      <button type="button" data-act="vf-filter" data-f="action" aria-pressed="true">To verify</button>
-      <button type="button" data-act="vf-filter" data-f="ready" aria-pressed="false">Beds ready to release</button>
-      <button type="button" data-act="vf-filter" data-f="waiting" aria-pressed="false">Reset in progress</button>
-      <button type="button" data-act="vf-filter" data-f="notstarted" aria-pressed="false">Reset not started</button>
-      <button type="button" data-act="vf-filter" data-f="reassigned" aria-pressed="false">Reassigned</button>
-      <button type="button" data-act="vf-filter" data-f="verified" aria-pressed="false">Released beds</button>
-      <button type="button" data-act="vf-filter" data-f="log" aria-pressed="false">Activity history</button>
-      <button type="button" data-act="vf-filter" data-f="all" aria-pressed="false">All beds</button>
+    <div class="vf-title"><span class="vf-badge" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><div><h2 id="h-verify" tabindex="-1">Verify</h2><p>Sign off finished work and release beds. Worker logging alone never releases a bed.</p></div></div>
+    <div class="vf-tiles" id="verify-seg" role="group" aria-label="Filter">
+      <button type="button" class="vf-tile" data-act="vf-filter" data-f="ready" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M3 18 6 8h12l3 10z"/><path d="m8 18 1.5-10M16 18l-1.5-10M5 13h14"/></svg><b class="n">0</b><span class="l">Beds ready to release</span></button>
+      <button type="button" class="vf-tile" data-act="vf-filter" data-f="waiting" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg><b class="n">0</b><span class="l">Reset in progress</span></button>
+      <button type="button" class="vf-tile" data-act="vf-filter" data-f="notstarted" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 5v14l12-7z" fill="currentColor"/></svg><b class="n">0</b><span class="l">Reset not started</span></button>
+      <button type="button" class="vf-tile" data-act="vf-filter" data-f="reassigned" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></svg><b class="n">0</b><span class="l">Reassigned</span></button>
+      <button type="button" class="vf-tile" data-act="vf-filter" data-f="verified" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><path d="m8 12 3 3 5-6" stroke="#fff"/></svg><b class="n">0</b><span class="l">Released beds</span></button>
+      <button type="button" class="vf-tile" data-act="vf-filter" data-f="log" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3 4v5h5"/><path d="M12 7.5V12l3 2"/></svg><b class="n">0</b><span class="l">Activity history</span></button>
+      <button type="button" class="vf-tile" data-act="vf-filter" data-f="all" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="6" cy="6" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="18" cy="6" r="1.8"/><circle cx="6" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="18" cy="12" r="1.8"/><circle cx="6" cy="18" r="1.8"/><circle cx="12" cy="18" r="1.8"/><circle cx="18" cy="18" r="1.8"/></svg><b class="n">0</b><span class="l">All beds</span></button>
     </div>
-    <p class="meta" id="verify-units" style="margin:-4px 0 12px">Sign-offs waiting for you.</p>
-    <div class="filters">
-      <label class="field" style="grid-column:1/-1"><span>Block</span><select class="input" id="verify-block"><option value="">All blocks</option></select></label>
+    <p class="sr-only" id="verify-units"></p>
+    <div class="vf-bar">
+      <label class="field"><span>Block</span><select class="input" id="verify-block"><option value="">All blocks</option></select></label>
       <label class="field"><span>Activity from</span><input class="input" id="verify-from" type="date"></label>
       <label class="field"><span>Activity to</span><input class="input" id="verify-to" type="date"></label>
-    </div>
-    <div class="seg" id="verify-dates" role="group" aria-label="Date shortcuts">
-      <button type="button" data-act="vf-date" data-d="today" aria-pressed="false">Today</button>
-      <button type="button" data-act="vf-date" data-d="7" aria-pressed="false">Last 7 days</button>
-      <button type="button" data-act="vf-date" data-d="any" aria-pressed="true">Any date</button>
+      <label class="vf-dsel"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/></svg><select id="verify-dsel" aria-label="Date range"><option value="any">Any date</option><option value="today">Today</option><option value="7">Last 7 days</option><option value="custom">Custom range</option></select></label>
     </div>
     <div id="verify-logbar" hidden>
       <div class="seg" id="verify-lstat" role="group" aria-label="Activity status">
@@ -1482,6 +1553,28 @@ function vfWorkHtml(s) {
     (w.checkedAt ? `<p class="sub">Checked${s.name ? ' <b>' + esc(vfActLabel(s.name)) + '</b>' : ''} by ${esc(w.checkedByName || 'a manager')} · ${esc(fmtWhen(w.checkedAt))}</p>` : '');
 }
 
+/* Proposed-UI version of vfWorkHtml: icon lines, over-budget in red. Used by the "Activities to verify" cards. */
+function vfWorkHtmlCard(s) {
+  const w = s.work; if (!w) return '';
+  const multi = w.completedBy.length > 1;
+  const who = w.completedBy.map(x => esc(x.name) + (multi ? ' (' + fmtHM(x.hours) + ')' : '')).join(', ');
+  let hrs;
+  if (w.noBudget) {
+    hrs = 'Time taken <b>' + fmtHM(w.actualHours) + '</b>';
+  } else if (w.budgetHours != null) {
+    const d = Number(w.varianceHours || 0), over = d > 0.004, under = d < -0.004;
+    hrs = 'Time taken <b>' + fmtHM(w.actualHours) + '</b> vs budget <b>' + fmtHM(w.budgetHours) + '</b> \u00b7 ' +
+      (over ? '<span class="over">' + fmtHM(d) + ' over budget</span>' : under ? fmtHM(-d) + ' under budget' : 'on budget');
+  } else {
+    hrs = 'Time taken <b>' + fmtHM(w.actualHours) + '</b> \u00b7 budget unavailable' + (w.budgetReason ? ' (' + esc(w.budgetReason) + ')' : '');
+  }
+  return `<div class="vc-meta"><span><svg class="solid" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"/></svg><span class="t">Completed by <b>${who}</b></span></span>` +
+    `<span><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span class="t">${esc(fmtWhen(w.completedAt))}${w.sessions > 1 ? ' \u00b7 ' + w.sessions + ' sessions' : ''}</span></span></div>` +
+    `<div class="vc-time"><svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 2.5h5"/></svg><span class="t">${hrs}${w.budgetRule ? ' <span class="vc-rule">(' + esc(w.budgetRule) + ')</span>' : ''}</span></div>` +
+    (w.verified ? `<p class="vc-ver">Verified${s.name ? ' <b>' + esc(vfActLabel(s.name)) + '</b>' : ''} by ${esc(w.verifiedByName || workerName(w.verifiedBy))} \u00b7 ${esc(fmtWhen(w.verifiedAt))}</p>` : '') +
+    (w.checkedAt ? `<p class="vc-ver">Checked${s.name ? ' <b>' + esc(vfActLabel(s.name)) + '</b>' : ''} by ${esc(w.checkedByName || 'a manager')} \u00b7 ${esc(fmtWhen(w.checkedAt))}</p>` : '');
+}
+
 /* ----- verify list: grouped by block, filtered by progress and by activity date -----
    Progress state of a bed in turnover:  ready = every step complete/overridden; started = something done, assigned, awaiting
    verification or reassigned; notstarted = untouched (a bed that has not begun its reset). Date filter: a bed matches when any
@@ -1597,23 +1690,27 @@ function vfPendNote(e) {
 }
 function vfPendHtml(list) {
   if (!list.length) return '';
+  const CLK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+  const BED = '<svg viewBox="0 0 24 24"><path d="M3 18 6 8h12l3 10z"/><path d="m8 18 1.5-10M16 18l-1.5-10M5 13h14"/></svg>';
   const rows = list.slice().sort((a, b) => vfNatural(a.bed.id, b.bed.id) || vfNatural(a.name, b.name)).map(e => {
     const k = vfPickKey(e);
-    return `<div class="item stripe med"><div class="vrow">${e.actionable === false ? '<span style="width:28px;flex:none"></span>' : `<input type="checkbox" data-act="vf-pick" data-key="${esc(k)}" ${ui.vfPick.has(k) ? 'checked' : ''} aria-label="Select ${esc(vfActLabel(e.name))} on bed ${esc(e.bed.id)}">`}
-      <div class="vbody"><div class="item-top"><span class="item-title">${esc(vfActLabel(e.name))}</span><span class="item-time">Bed ${esc(e.bed.id)}${e.bed.block ? ' \u00b7 ' + esc(e.bed.block) : ''}</span></div>
-      <div class="chips"><span class="chip med">Waiting for your sign-off</span></div>
-      <p class="sub">${esc(vfActDesc(e.name))}</p>${vfWorkHtml(e.step)}${vfPendNote(e)}</div></div></div>`;
+    return `<div class="vcard">${e.actionable === false ? '<span></span>' : `<input type="checkbox" data-act="vf-pick" data-key="${esc(k)}" ${ui.vfPick.has(k) ? 'checked' : ''} aria-label="Select ${esc(vfActLabel(e.name))} on bed ${esc(e.bed.id)}">`}
+      <div class="vc-body"><b class="vc-title">${esc(vfActLabel(e.name))}</b><div class="vc-sub">Bed ${esc(e.bed.id)}${e.bed.block ? ' \u00b7 ' + esc(e.bed.block) : ''}</div>
+      <span class="vc-pill">${CLK}Waiting for your sign-off</span>
+      <p class="vc-desc">${esc(vfActDesc(e.name))}</p>${vfWorkHtmlCard(e.step)}${vfPendNote(e)}</div>
+      <button class="vc-go" type="button" data-act="verify-open" data-bed="${esc(e.bed.id)}" aria-label="Open bed ${esc(e.bed.id)}"><span class="vc-badge">${BED}<b>${esc(e.bed.id)}</b>${e.bed.block ? '<i>' + esc(e.bed.block) + '</i>' : ''}</span><svg class="vc-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button></div>`;
   }).join('');
-  return `<div class="bucket"><div class="bucket-head"><h3>Activities to verify</h3><span class="count">${list.length}</span></div>
-    <div class="group" style="padding:10px 16px"><div class="vbar" style="margin-bottom:6px"><button class="btn" type="button" data-act="vf-pall">Select all</button><button class="btn" type="button" data-act="vf-pnone">Clear</button>
-      <button class="btn btn-primary" type="button" id="vf-pgo" data-act="vf-pgo" disabled>Verify selected</button></div>
-    <div class="list" style="border:0">${rows}</div></div></div>`;
+  return `<div class="bucket"><div class="vf-sechead"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2.5"/><path d="M9 3h6v3H9zM8.5 13.5l2.5 2.5 4.5-5"/></svg><h3>Activities to verify</h3><span class="count">${list.length}</span></div>
+    <div class="vf-acts"><button class="vf-act" type="button" data-act="vf-pall"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><path d="m8 12 3 3 5-6"/></svg>Select all</button>
+      <button class="vf-act" type="button" data-act="vf-pnone"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>Clear</button>
+      <button class="vf-act go" type="button" id="vf-pgo" data-act="vf-pgo" disabled><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg><span id="vf-pgo-t">Verify selected</span></button></div>
+    <div class="vf-cards">${rows}</div></div>`;
 }
 function syncPickBar() {
   const b = $('#vf-pgo'); if (!b) return;
   const live = new Set(vfStepEntries().filter(e => e.status === 'pending' && e.actionable !== false).map(vfPickKey));
   [...ui.vfPick].forEach(k => { if (!live.has(k)) ui.vfPick.delete(k); });
-  b.disabled = !ui.vfPick.size; b.textContent = ui.vfPick.size ? `Verify selected (${ui.vfPick.size})` : 'Verify selected';
+  b.disabled = !ui.vfPick.size; const bt = $('#vf-pgo-t') || b; bt.textContent = ui.vfPick.size ? `Verify selected (${ui.vfPick.size})` : 'Verify selected';
 }
 function vfPickAll(on) { $$('[data-act="vf-pick"]').forEach(c => { c.checked = on; on ? ui.vfPick.add(c.dataset.key) : ui.vfPick.delete(c.dataset.key); }); syncPickBar(); }
 function vfPickSheet() {
@@ -1661,13 +1758,10 @@ function renderVerify() {
   const counts = { action: v.snapshot ? Math.max(0, v.snapshot.counts.total - plantingHidden) : pendAll.length + planting.length + nReady, ready: nReady, waiting: nWait, verified: rel.length, log: logCount, notstarted: nNot, reassigned: nRe, all: turn.length };
   const labels = { action: 'To verify', ready: 'Beds ready to release', waiting: 'Reset in progress', verified: 'Released beds', log: 'Activity history', notstarted: 'Reset not started', reassigned: 'Reassigned', all: 'All beds' };
   $('#verify-units').textContent = VF_TAB_HELP[ui.vfFilter] || '';
-  $$('#verify-seg button').forEach(b => { const f = b.dataset.f; b.textContent = labels[f] + ' · ' + counts[f]; b.setAttribute('aria-pressed', String(f === ui.vfFilter)); });
+  $$('#verify-seg button').forEach(b => { const f = b.dataset.f, n = b.querySelector('.n'); if (n) n.textContent = counts[f]; b.setAttribute('aria-label', labels[f] + ': ' + counts[f]); b.setAttribute('aria-pressed', String(f === ui.vfFilter)); });
   const today = vfIso(new Date()), wk = vfIso(new Date(Date.now() - 6 * 86400000));
   $('#verify-from').value = ui.vfFrom; $('#verify-to').value = ui.vfTo;
-  $$('#verify-dates button').forEach(b => {
-    const d = b.dataset.d, on = d === 'any' ? (!ui.vfFrom && !ui.vfTo) : d === 'today' ? (ui.vfFrom === today && ui.vfTo === today) : (ui.vfFrom === wk && ui.vfTo === today);
-    b.setAttribute('aria-pressed', String(on));
-  });
+  { const ds = $('#verify-dsel'); if (ds) ds.value = (!ui.vfFrom && !ui.vfTo) ? 'any' : (ui.vfFrom === today && ui.vfTo === today) ? 'today' : (ui.vfFrom === wk && ui.vfTo === today) ? '7' : 'custom'; }
   const blocks = Array.from(new Set(turn.concat(rel).map(b => b.block).filter(Boolean))).sort(vfNatural), sel = $('#verify-block');
   sel.innerHTML = '<option value="">All blocks</option>' + blocks.map(x => `<option>${esc(x)}</option>`).join('');
   sel.value = blocks.includes(ui.vfBlock) ? ui.vfBlock : ''; ui.vfBlock = sel.value;
@@ -2714,7 +2808,7 @@ document.addEventListener('click', e => {
     case 'scan-camera': scanCamera(); break;
     case 'scan-stop': stopScan(); break;
     case 'activity-type': ui.activityType = t.dataset.type; renderActivityLog(); break;
-    case 'vf-filter': ui.vfFilter = t.dataset.f; renderVerify(); break;
+    case 'vf-filter': ui.vfFilter = (t.dataset.f === ui.vfFilter && ui.vfFilter !== 'action') ? 'action' : t.dataset.f; renderVerify(); break;
     case 'vf-lstat': ui.vfLogStatus = t.dataset.s; renderVerify(); break;
     case 'vf-toggle': { const k = t.dataset.block, cur = t.getAttribute('aria-expanded') === 'true'; ui.vfOpen[k] = !cur; renderVerify(); break; }
     case 'vf-date': {
@@ -2746,6 +2840,13 @@ document.addEventListener('click', e => {
 $('#scan-input').addEventListener('keydown', e => { if (e.key === 'Enter') handleScan(e.target.value); });
 ['#activity-worker', '#activity-act', '#activity-bed', '#activity-by', '#activity-period'].forEach(id => $(id).addEventListener('change', renderActivityLog));
 $('#verify-block').addEventListener('change', e => { ui.vfBlock = e.target.value; renderVerify(); });
+$('#verify-dsel').addEventListener('change', e => {
+  const d = e.target.value, now = new Date();
+  if (d === 'today') { ui.vfFrom = ui.vfTo = vfIso(now); }
+  else if (d === '7') { ui.vfFrom = vfIso(new Date(Date.now() - 6 * 86400000)); ui.vfTo = vfIso(now); }
+  else if (d === 'any') { ui.vfFrom = ui.vfTo = ''; }
+  renderVerify();
+});
 $('#verify-act').addEventListener('change', e => { ui.vfAct = e.target.value; renderVerify(); });
 ['#verify-from', '#verify-to'].forEach(q => $(q).addEventListener('change', e => { (q === '#verify-from' ? (ui.vfFrom = e.target.value) : (ui.vfTo = e.target.value)); renderVerify(); }));
 ['#scout-bed', '#scout-domain', '#scout-status'].forEach(s => $(s).addEventListener('change', renderScouting));
