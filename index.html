@@ -911,13 +911,18 @@ function normSession(s) {
     // Resolved to a display name via workerName(), same lookup used for reassignedFrom -
     // listWorkersSafe_() (behind list-workers/ensureWorkers()) returns every USERS row,
     // managers included, not just field workers.
-    managerId: g(s, 'managerId') || ''
+    managerId: g(s, 'managerId') || '',
+    // A worker's finished portion of a shared activity (get-manager-board adds these as COMPLETED rows with Portion_Done).
+    portionDone: g(s, 'portionDone') === true || String(g(s, 'portionDone')).toLowerCase() === 'true',
+    portionChecked: g(s, 'portionChecked') === true || String(g(s, 'portionChecked')).toLowerCase() === 'true',
+    end: g(s, 'endTime', 'end')
   };
 }
 function renderBoard() {
-  $('#board-meta').textContent = state.sessions.length ? state.sessions.length + ' open, updated ' + fmtTime(new Date()) : 'Updated ' + fmtTime(new Date());
+  const openCount = state.sessions.filter(s => !s.portionDone).length;
+  $('#board-meta').textContent = openCount ? openCount + ' open, updated ' + fmtTime(new Date()) : 'Updated ' + fmtTime(new Date());
   const box = $('#board-list');
-  if (!state.sessions.length) { box.innerHTML = empty('No open sessions', 'Nobody is signed into a bed right now. Sessions appear here as soon as a worker starts one.'); return; }
+  if (!openCount) { box.innerHTML = empty('No open sessions', 'Nobody is signed into a bed right now. Sessions appear here as soon as a worker starts one.'); return; }
   // Group one card per bed + activity (what was dispatched), workers listed as rows under it -
   // instead of one flat card per worker/activity pair. Mirrors the "Active dispatches on <bed>"
   // grouping in ranch_aab.html, so DirectSeeding assigned to two workers, or three prep tasks
@@ -931,8 +936,19 @@ function renderBoard() {
     g.rows.push({ s, i });
   });
   box.innerHTML = groups.map(g => {
-    const live = g.rows.some(r => r.s.status !== 'ASSIGNED');
-    const rows = g.rows.map(({ s, i }) => {
+    const openRows = g.rows.filter(r => !r.s.portionDone), doneRows = g.rows.filter(r => r.s.portionDone);
+    if (!openRows.length) return '';   // nothing open on this dispatch any more: it is no longer a live board item
+    const live = openRows.some(r => r.s.status !== 'ASSIGNED');
+    const doneHtml = doneRows.map(({ s }) => `
+      <div class="item">
+        <div class="item-top">
+          <div><span class="item-title">&#10003; ${esc(s.worker)}</span></div>
+          <span class="item-time">${s.end ? esc(fmtTime(s.end)) : ''}</span>
+        </div>
+        <p class="sub">finished their portion${s.portionChecked ? ', checked by manager' : ', waiting for manager check'}</p>
+        <div class="chips"><span class="chip ${s.portionChecked ? '' : 'med'}">${s.portionChecked ? 'Completed and checked' : 'Finished, awaiting check'}</span></div>
+      </div>`).join('');
+    const rows = openRows.map(({ s, i }) => {
       const assigned = s.status === 'ASSIGNED';   // manager assigned it, worker hasn't tapped Start yet (see ActivityEngine.gs)
       const paused = s.status === 'PAUSED';
       const lastPause = s.pauseTimes[s.pauseTimes.length - 1];
@@ -975,9 +991,9 @@ function renderBoard() {
         <div><b>${esc(g.activityId ? g.activityId + ': ' + g.task : g.task)}</b>${g.desc ? `<div class="sub">${esc(g.desc)}</div>` : ''}
           <div class="sub">Bed ${esc(g.bedId || '-')} · Cohort ${esc(g.cohortId || '-')}${g.crop ? ' · ' + esc(g.crop) : ''}</div>
         </div>
-        <span class="chip ${live ? '' : 'neutral'}">${live ? 'In progress' : 'Assigned'}</span>
+        <span class="chip ${live ? '' : 'neutral'}">${live ? 'In progress' : 'Assigned'}${doneRows.length ? ' · ' + doneRows.length + ' of ' + (doneRows.length + openRows.length) + ' finished' : ''}</span>
       </div>
-      <div class="list">${rows}</div>
+      <div class="list">${doneHtml}${rows}</div>
     </div>`;
   }).join('');
 }
