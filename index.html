@@ -282,22 +282,148 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
 .ph-lid { font-weight: 700; font-size: 24px; line-height: 1.2; margin: 4px 0 8px; }
 .ph-lm { font-size: 15px; margin-top: 4px; }
 @media print { body > *:not(#ph-label) { display: none !important; } #ph-label { position: static; background: #fff; padding: 0; } .ph-lbox { max-width: none; } .noprint { display: none !important; } }
+
+/* ==========================================================================
+   PROPOSED UI (mobile-first): app header with connection pill + menu, "Today's operations" summary, session cards
+   with worker progress, bottom navigation. Appended last so it overrides the older header / board rules.
+   ========================================================================== */
+#app-header { background: linear-gradient(180deg, #14442F 0%, #1E4D3A 100%); padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px; box-shadow: 0 2px 10px rgba(10,30,20,.25); }
+.hd-row { max-width: 760px; margin: 0 auto; }
+.brandblock { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brandblock svg.logo { width: 44px; height: 44px; flex: none; }
+.brand { font-size: 24px; font-weight: 800; line-height: 1.1; }
+.hd-id { margin: 2px 0 0; display: block; }
+.who { font-size: 15px; opacity: .95; }
+.who b, .who span { display: inline; }
+.who .dot { margin: 0 6px; opacity: .8; }
+.hd-right { display: flex; align-items: center; gap: 10px; flex: none; }
+.conn { border: 1.5px solid rgba(255,255,255,.55); border-radius: 999px; padding: 6px 14px 6px 10px; font-size: 15px; }
+.conn i { width: 14px; height: 14px; }
+.hamb { width: 44px; height: 44px; border: 0; background: transparent; color: #fff; cursor: pointer; border-radius: 10px; display: grid; place-items: center; }
+.hamb:active { background: rgba(255,255,255,.15); }
+.hamb svg { width: 30px; height: 30px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; }
+.hamb[hidden] { display: none; }
+.more-panel { position: absolute; left: 0; right: 0; top: 100%; background: var(--field); color: var(--ink); border-bottom: 1px solid var(--line); box-shadow: 0 14px 30px rgba(10,30,20,.28); max-height: calc(100vh - 80px); overflow: auto; }
+.more-panel[hidden] { display: none; }
+.more-in { max-width: 760px; margin: 0 auto; padding: 14px 16px 16px; }
+.more-in .nav-grid { margin-bottom: 12px; }
+.more-in .hd-btns { gap: 10px; }
+.more-in .btn-hd { color: var(--leaf); border-color: var(--leaf); background: var(--paper); flex: 1; }
+.more-in .btn-hd:active { background: var(--leaf-soft); }
+
+.ops-card { background: #F4F6F2; border: 1.5px solid var(--line); border-radius: 18px; padding: 12px; margin-bottom: 16px; }
+.ops-title { display: flex; align-items: center; gap: 10px; margin: 0 0 8px 4px; color: var(--leaf); }
+.ops-title svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.ops-title h2 { font-size: 22px; color: var(--ink); }
+.ops-row { display: flex; align-items: stretch; gap: 8px; }
+.ops-tile { flex: 1; min-width: 0; border-radius: 12px; padding: 10px 6px 8px; text-align: center; background: #DDEBDD; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; }
+.ops-tile.warn { background: #FCEBCB; }
+.ops-tile.warn.hot { background: #FBDDA6; }
+.ops-n { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.ops-tile b { font-size: 40px; line-height: 1; font-weight: 800; color: var(--ink); }
+.ops-tile.warn b { color: #C25A0A; }
+.ops-tile span { font-size: 16px; font-weight: 600; line-height: 1.15; }
+.ops-bang, .ops-tick { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-style: normal; font-weight: 800; font-size: 20px; flex: none; }
+.ops-bang { background: #E8740C; } .ops-tick { background: #1F7A3D; }
+.ops-div { width: 1.5px; background: var(--line); margin: 6px 0; }
+
+.board-banner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 2px 12px; background: #1B4A36; color: #fff; border-radius: 14px 14px 0 0; padding: 12px 16px; }
+.board-banner h2 { font-size: 24px; display: flex; align-items: center; gap: 12px; color: #fff; }
+.board-banner h2 svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.board-banner .meta { color: #E6F1EA; font-size: 15px; }
+#board-list { padding-top: 6px; }
+
+.scard { --accent: #F5A623; background: var(--paper); border: 1px solid var(--line); border-left: 7px solid var(--accent); border-radius: 16px; padding: 14px; margin: 10px 0 12px; box-shadow: 0 1px 4px rgba(20,40,30,.1); }
+.sc-top { display: flex; align-items: flex-start; gap: 12px; }
+.sc-ico { width: 44px; height: 44px; flex: none; color: #2E7D32; display: grid; place-items: center; }
+.sc-ico svg { width: 40px; height: 40px; }
+.scard[data-kind="drop"] .sc-ico { color: #1565C0; }
+.sc-title { flex: 1; min-width: 0; }
+.sc-title b { display: block; font-size: 22px; line-height: 1.15; }
+.sc-loc { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 17px; color: #2C4A3A; flex-wrap: wrap; }
+.sc-loc svg { width: 20px; height: 20px; color: #1565C0; flex: none; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-size: 16px; padding: 7px 12px; border-radius: 999px; white-space: nowrap; background: #FCE8B8; color: #9A5B00; flex: none; border: 1.5px solid #F2C46B; }
+.pill svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.pill.blue { background: #DCEBFA; color: #14509A; border-color: #A9CBEE; }
+.pill.green { background: #DDEFD9; color: #1E6B2E; border-color: #A9D3A2; }
+.pill.hot { background: #FADBD0; color: #A53A0C; border-color: #EDA98E; }
+.pill.sm { font-size: 14px; padding: 5px 11px; }
+.sc-prog { display: flex; justify-content: space-between; align-items: baseline; margin: 12px 0 6px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 18px; font-weight: 800; }
+.sc-bar { height: 12px; border-radius: 999px; background: #D9DEDA; overflow: hidden; margin-bottom: 6px; }
+.sc-bar i { display: block; height: 100%; background: #1F7A3D; border-radius: 999px; }
+.sc-w { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #E3E8E4; }
+.sc-bar + .sc-w, .sc-bar + .sc-wrap > .sc-w { border-top: 0; }
+.sc-w .mark { width: 40px; height: 40px; border-radius: 50%; flex: none; display: grid; place-items: center; }
+.sc-w .mark.done { background: #1F7A3D; color: #fff; }
+.sc-w .mark.done svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.sc-w .mark.todo { border: 3px solid #C3CBC5; }
+.sc-w .mark.live { border: 3px solid #1F7A3D; }
+.sc-wb { flex: 1; min-width: 0; }
+.sc-wb b { display: block; font-size: 20px; line-height: 1.2; }
+.sc-wb i { display: block; font-style: italic; font-size: 15px; color: #4B5E53; margin-top: 1px; }
+.sc-line { margin: 12px 0 2px; font-size: 17px; color: #31453A; padding-top: 10px; border-top: 1px solid var(--line); }
+.sc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.sc-acts { display: flex; gap: 10px; margin-top: 12px; }
+.sc-btn { flex: 1; min-height: 52px; border-radius: 12px; font-weight: 800; font-size: 18px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 2px solid #1B5E36; }
+.sc-btn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.sc-btn.solid { background: #1B6B3A; color: #fff; } .sc-btn.solid:active { background: #14512C; }
+.sc-btn.outline { background: #fff; color: #1B5E36; } .sc-btn.outline:active { background: var(--leaf-soft); }
+
+#bottom-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: #14442F; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -4px 16px rgba(10,30,20,.25); }
+#bottom-nav[hidden] { display: none; }
+#bottom-nav button { min-height: 62px; border: 0; background: transparent; color: #fff; border-radius: 14px; font-weight: 800; font-size: 17px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; position: relative; }
+#bottom-nav button svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+#bottom-nav button[aria-current="page"] { background: #2E7D4F; }
+#bottom-nav button + button::before { content: ""; position: absolute; left: -4px; top: 14px; bottom: 14px; width: 1.5px; background: rgba(255,255,255,.28); }
+#bottom-nav button[aria-current="page"]::before, #bottom-nav button[aria-current="page"] + button::before { display: none; }
+body.has-bnav main { padding-bottom: 110px; }
+body.has-bnav #toast { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+.brand, .who { white-space: nowrap; }
+.sc-loc { flex-wrap: nowrap; align-items: flex-start; } .sc-loc svg { margin-top: 2px; } .sc-loc span { min-width: 0; } .sc-loc .nb { white-space: nowrap; }
+@media (max-width: 460px) {
+  #app-header { padding-left: 10px; padding-right: 8px; }
+  .brandblock { gap: 8px; } .brandblock svg.logo { width: 36px; height: 36px; }
+  .brand { font-size: 19px; } .who { font-size: 14px; }
+  .hd-right { gap: 4px; } .conn { padding: 4px 9px 4px 7px; font-size: 13px; gap: 6px; } .conn i { width: 11px; height: 11px; }
+  .hamb { width: 40px; height: 40px; }
+  .ops-tile b { font-size: 34px; } .ops-tile span { font-size: 15px; } .ops-bang, .ops-tick { width: 28px; height: 28px; font-size: 17px; }
+  .sc-title b { font-size: 20px; } .sc-btn { font-size: 15px; gap: 6px; padding: 0 6px; white-space: nowrap; } .pill { font-size: 15px; padding: 6px 10px; }
+}
 </style>
 </head>
 <body>
 
 <header id="app-header">
   <div class="hd-row">
-    <div class="brand">VPOS Manager</div>
-    <div class="conn" id="conn" data-s="idle" role="status"><i></i><span id="conn-text">Not connected</span></div>
+    <div class="brandblock"><svg class="logo" viewBox="0 0 48 48" aria-hidden="true"><path d="M8 40C8 20 20 8 42 6c1 22-9 34-26 34-3 0-5-.3-8 0z" fill="#7CC243"/><path d="M8 40C14 26 24 16 38 10" stroke="#14442F" stroke-width="2.6" fill="none" stroke-linecap="round"/><path d="M6 42c0-14 8-24 20-30C14 20 10 30 14 42z" fill="#2E9B4E" opacity=".55"/></svg>
+      <div>
+        <div class="brand">VPOS Manager</div>
+        <div class="who hd-id" id="hd-id" hidden><b id="hd-name"></b><span class="dot">&bull;</span><span id="hd-role"></span></div>
+      </div>
+    </div>
+    <div class="hd-right">
+      <div class="conn" id="conn" data-s="idle" role="status"><i></i><span id="conn-text">Not connected</span></div>
+      <button class="hamb" id="btn-menu" data-act="more" type="button" aria-label="Menu" aria-expanded="false" hidden><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+    </div>
   </div>
-  <div class="hd-id" id="hd-id" hidden>
-    <div class="who"><b id="hd-name"></b><span id="hd-role"></span></div>
-    <div class="hd-btns">
-      <button class="btn-hd" data-act="back" id="btn-board" type="button" hidden>Board</button>
-      <button class="btn-hd" data-act="nav" data-view="view-zone" id="btn-zone" type="button">Zone sign-off<span class="zs-badge" id="zs-badge-hd"></span></button>
-      <button class="btn-hd" data-act="refresh" id="btn-refresh" type="button">Refresh</button>
-      <button class="btn-hd" data-act="logout" id="btn-logout" type="button">Log out</button>
+  <div class="more-panel" id="more-panel" hidden>
+    <div class="more-in">
+      <div class="nav-grid" id="board-nav">
+      <button class="tile" data-act="nav" data-view="view-queue" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg>Daily queue</button>
+      <button class="tile" id="tile-zone" data-act="nav" data-view="view-zone" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3c3 4 6 7 6 11a6 6 0 0 1-12 0c0-4 3-7 6-11z"/><path d="m9.5 14.5 2 2 3.5-4"/></svg><span>Zone sign-off<span class="zs-badge" id="zs-badge-tile"></span></span></button>
+      <button class="tile" data-act="nav" data-view="view-harvest-ready" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>Harvest ready</button>
+      <button class="tile" data-act="nav" data-view="view-harvest-complete" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2 4 2 4H5"/></svg>Harvested</button>
+      <button class="tile" data-act="nav" data-view="view-activity-log" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Activity log</button>
+      <button class="tile" data-act="nav" data-view="view-verify" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg>Verify</button>
+      <button class="tile" data-act="nav" data-view="view-history" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></svg>Reassignments</button>
+      <button class="tile" data-act="nav" data-view="view-scouting" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Scouting</button>
+    <button class="tile" data-act="nav" data-view="view-packhouse" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Packhouse</button>
+    </div>
+      <div class="hd-btns">
+        <button class="btn-hd" data-act="back" id="btn-board" type="button" hidden>Board</button>
+        <button class="btn-hd" data-act="refresh" id="btn-refresh" type="button">Refresh</button>
+        <button class="btn-hd" data-act="logout" id="btn-logout" type="button">Log out</button>
+      </div>
     </div>
   </div>
 </header>
@@ -323,19 +449,18 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
 
   <!-- 2. board -->
   <section id="view-board" class="view" hidden aria-labelledby="h-board">
-    <div class="nav-grid" id="board-nav">
-      <button class="tile primary" data-act="nav" data-view="view-queue" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg>Today</button>
-      <button class="tile" id="tile-zone" data-act="nav" data-view="view-zone" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3c3 4 6 7 6 11a6 6 0 0 1-12 0c0-4 3-7 6-11z"/><path d="m9.5 14.5 2 2 3.5-4"/></svg><span>Zone sign-off<span class="zs-badge" id="zs-badge-tile"></span></span></button>
-      <button class="tile" data-act="nav" data-view="view-harvest-ready" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>Harvest ready</button>
-      <button class="tile" data-act="nav" data-view="view-harvest-complete" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2 4 2 4H5"/></svg>Harvested</button>
-      <button class="tile" data-act="nav" data-view="view-activity-log" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Activity log</button>
-      <button class="tile" data-act="nav" data-view="view-verify" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg>Verify</button>
-      <button class="tile" data-act="nav" data-view="view-history" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></svg>Reassignments</button>
-      <button class="tile" data-act="nav" data-view="view-scouting" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Scouting</button>
-    <button class="tile" data-act="nav" data-view="view-packhouse" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Packhouse</button>
+    <div class="ops-card" aria-label="Today's operations">
+      <div class="ops-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21v-9"/><path d="M12 12c0-4 2.5-6.5 7-6.5 0 4-2.5 6.5-7 6.5z"/><path d="M12 14c0-3.2-2-5.2-6-5.2 0 3.2 2 5.2 6 5.2z"/></svg><h2>Today&rsquo;s operations</h2></div>
+      <div class="ops-row">
+        <div class="ops-tile"><b id="ops-open">0</b><span>Open sessions</span></div>
+        <div class="ops-div"></div>
+        <div class="ops-tile warn" id="ops-attn-tile"><div class="ops-n"><b id="ops-attn">0</b><i class="ops-bang">!</i></div><span>Needs attention</span></div>
+        <div class="ops-div"></div>
+        <div class="ops-tile"><div class="ops-n"><b id="ops-done">0</b><i class="ops-tick">&#10003;</i></div><span>Completed</span></div>
+      </div>
     </div>
     <div id="board-urgent"></div>
-    <div class="sec-head"><h2 id="h-board" tabindex="-1">Open field sessions</h2><span class="meta" id="board-meta"></span></div>
+    <div class="board-banner"><h2 id="h-board" tabindex="-1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg>Open field sessions</h2><span class="meta" id="board-meta"></span></div>
     <div id="board-list"></div>
   </section>
 
@@ -483,6 +608,13 @@ video#scan-video { width: 100%; border-radius: 12px; background: #000; aspect-ra
   </section>
 
 </main>
+<nav id="bottom-nav" aria-label="Main" hidden>
+  <button type="button" data-act="nav" data-view="view-board" data-nav="today"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10"/><path d="M10 20v-6h4v6"/></svg>Today</button>
+  <button type="button" data-act="nav" data-view="view-verify" data-nav="verify"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg>Verify</button>
+  <button type="button" data-act="nav" data-view="view-activity-log" data-nav="activity"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3 4v5h5"/><path d="M12 7.5V12l3 2"/></svg>Activity</button>
+  <button type="button" data-act="more" data-nav="more" aria-haspopup="true"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>More</button>
+</nav>
+
 
 <dialog class="sheet" id="sheet" aria-labelledby="sheet-title"><div class="sheet-in" id="sheet-body"></div></dialog>
 <dialog class="sheet" id="di-dlg" aria-label="Planting date impact"><div class="sheet-in" id="di-body"></div></dialog>
@@ -776,9 +908,30 @@ function renderHeader() {
   $('#hd-name').textContent = state.managerName || '';
   $('#hd-role').textContent = state.role || '';
   if (!on) { setConn('idle'); ZS.items = []; ZS.loaded = false; ZS.drafts = {}; }
-  syncBoardBtn(); zsPaintCount();
+  syncBoardBtn(); syncNav(); zsPaintCount();
 }
 function syncBoardBtn() { const b = $('#btn-board'); if (b) b.hidden = !state.managerId || ui.view === 'view-board' || ui.view === 'view-login'; }
+/* Bottom navigation + header menu: shown only while signed in. */
+function syncNav() {
+  const on = !!state.managerId && ui.view !== 'view-login';
+  const bn = $('#bottom-nav'); if (bn) bn.hidden = !on;
+  const hb = $('#btn-menu'); if (hb) hb.hidden = !on;
+  document.body.classList.toggle('has-bnav', on);
+  const cur = ui.view === 'view-board' ? 'today' : (ui.view === 'view-verify' || ui.view === 'view-verify-bed') ? 'verify' : ui.view === 'view-activity-log' ? 'activity' : 'more';
+  $$('#bottom-nav button').forEach(b => { if (b.dataset.nav === cur && on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  if (!on) setMore_(false);
+}
+function setMore_(open) {
+  const p = $('#more-panel'); if (!p) return;
+  p.hidden = !open;
+  const hb = $('#btn-menu'); if (hb) hb.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+document.addEventListener('click', e => {
+  const p = $('#more-panel'); if (!p || p.hidden) return;
+  if (e.target.closest('[data-act="more"]')) return;
+  if (e.target.closest('#more-panel [data-act]') || !e.target.closest('#more-panel')) setMore_(false);
+});
+
 
 /* ==========================================================================
    NAVIGATION
@@ -799,7 +952,7 @@ const LOADERS = {
 function switchView(viewId) {
   $$('.view').forEach(v => { v.hidden = v.id !== viewId; });
   ui.view = viewId;
-  syncBoardBtn(); zsPaintCount(); saveSession();
+  syncBoardBtn(); syncNav(); zsPaintCount(); saveSession(); setMore_(false);
   window.scrollTo(0, 0);
   const h = $('#' + viewId + ' h2[tabindex]') || $('#' + viewId + ' h2');
   if (h) h.focus({ preventScroll: true });
@@ -838,7 +991,7 @@ async function loadUrgentScouting() {
   try {
     const res = await apiCall(ACTIONS.scoutFindings);
     state.scoutFindings = listOf(res, 'findings', 'scoutFindings', 'entries').map(normFinding);
-    renderUrgentScouting();
+    renderUrgentScouting(); paintOps();
   } catch (err) { /* the Board still loads; the urgent strip keeps its last state */ }
 }
 function renderUrgentScouting() {
@@ -915,86 +1068,106 @@ function normSession(s) {
     // A worker's finished portion of a shared activity (get-manager-board adds these as COMPLETED rows with Portion_Done).
     portionDone: g(s, 'portionDone') === true || String(g(s, 'portionDone')).toLowerCase() === 'true',
     portionChecked: g(s, 'portionChecked') === true || String(g(s, 'portionChecked')).toLowerCase() === 'true',
-    end: g(s, 'endTime', 'end')
+    end: g(s, 'endTime', 'end'),
+    assigned: g(s, 'assignedTime')
   };
+}
+const BIC = {
+  tractor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="16.5" r="3.5"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M3 13V6.5h7.5l2 5H18a3 3 0 0 1 3 3V15"/><path d="M10 11.5V6.5M9.5 16.5h6.5"/></svg>',
+  drop: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2.5c3.6 4.6 7 8 7 12a7 7 0 0 1-14 0c0-4 3.4-7.4 7-12z"/></svg>',
+  sprout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21v-9"/><path d="M12 12c0-4.5 3-7 8-7 0 4.5-3 7-8 7z"/><path d="M12 15c0-3.5-2.2-5.5-6.5-5.5 0 3.5 2.2 5.5 6.5 5.5z"/></svg>',
+  pin: '<svg viewBox="0 0 24 24"><path d="M12 21.5s7-6.2 7-11.5a7 7 0 0 0-14 0c0 5.3 7 11.5 7 11.5z" fill="currentColor"/><circle cx="12" cy="10" r="2.6" fill="#fff"/></svg>',
+  clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  shuffle: '<svg viewBox="0 0 24 24"><path d="M3 7h3.5c3 0 4 2 5.5 5s2.5 5 5.5 5H21"/><path d="M3 17h3.5c1.6 0 2.7-.7 3.6-2"/><path d="M21 7h-3.5c-1.6 0-2.7.7-3.6 2"/><path d="m18.5 4.5 2.5 2.5-2.5 2.5"/><path d="m18.5 14.5 2.5 2.5-2.5 2.5"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'
+};
+function activityKind_(g) {
+  const n = String(g.task || '').toLowerCase();
+  if (/irrig|water/.test(n)) return 'drop';
+  if (/seed|transplant|plant|sow|harvest|scout|weed/.test(n)) return 'sprout';
+  return 'tractor';
+}
+/* The summary card: open sessions, what needs the manager (paused / exception sessions, urgent scouting findings, zone traces
+   waiting for sign-off) and finished worker portions still on the board. Painted from data the app already holds. */
+function paintOps() {
+  const o = $('#ops-open'); if (!o) return;
+  const open = state.sessions.filter(x => !x.portionDone);
+  const stuck = open.filter(x => x.status === 'PAUSED' || x.status === 'EXCEPTION').length;
+  const urgent = (state.scoutFindings || []).filter(f => f.status !== 'RESOLVED' && (f.severity === 'HIGH' || f.severity === 'CRITICAL' || f.requiresAction)).length;
+  const zones = (typeof ZS !== 'undefined' && ZS.loaded) ? ZS.items.length : 0;
+  const attn = stuck + urgent + zones, done = state.sessions.filter(x => x.portionDone).length;
+  o.textContent = open.length; $('#ops-attn').textContent = attn; $('#ops-done').textContent = done;
+  const t = $('#ops-attn-tile');
+  if (t) { t.classList.toggle('hot', attn > 0); t.title = attn ? [stuck && stuck + ' paused or exception session(s)', urgent && urgent + ' urgent scouting finding(s)', zones && zones + ' zone trace(s) to sign off'].filter(Boolean).join(', ') : 'Nothing needs attention'; }
 }
 function renderBoard() {
   const openCount = state.sessions.filter(s => !s.portionDone).length;
-  $('#board-meta').textContent = openCount ? openCount + ' open, updated ' + fmtTime(new Date()) : 'Updated ' + fmtTime(new Date());
+  $('#board-meta').textContent = openCount + ' open \u2022 Updated ' + fmtTime(new Date());
+  paintOps();
   const box = $('#board-list');
   if (!openCount) { box.innerHTML = empty('No open sessions', 'Nobody is signed into a bed right now. Sessions appear here as soon as a worker starts one.'); return; }
-  // Group one card per bed + activity (what was dispatched), workers listed as rows under it -
-  // instead of one flat card per worker/activity pair. Mirrors the "Active dispatches on <bed>"
-  // grouping in ranch_aab.html, so DirectSeeding assigned to two workers, or three prep tasks
-  // running on the same bed, read as three dispatches rather than a wall of near-duplicate cards.
-  // data-i on each row still indexes into state.sessions, same as before grouping.
+  // One card per bed + activity (what was dispatched). Workers who finished their part sit above the ones still open, under a progress bar.
+  // data-i on each button still indexes into state.sessions.
   const groups = [], byKey = {};
   state.sessions.forEach((s, i) => {
     const key = (s.bedId || '') + '|' + (s.activityId || s.task);
-    let g = byKey[key];
-    if (!g) { g = byKey[key] = { bedId: s.bedId, cohortId: s.cohortId, crop: cropFor(s), activityId: s.activityId, task: s.task, desc: s.desc, rows: [] }; groups.push(g); }
-    g.rows.push({ s, i });
+    let grp = byKey[key];
+    if (!grp) { grp = byKey[key] = { bedId: s.bedId, cohortId: s.cohortId, crop: cropFor(s), activityId: s.activityId, task: s.task, desc: s.desc, rows: [] }; groups.push(grp); }
+    grp.rows.push({ s, i });
   });
-  box.innerHTML = groups.map(g => {
-    const openRows = g.rows.filter(r => !r.s.portionDone), doneRows = g.rows.filter(r => r.s.portionDone);
-    if (!openRows.length) return '';   // nothing open on this dispatch any more: it is no longer a live board item
-    const live = openRows.some(r => r.s.status !== 'ASSIGNED');
-    const doneHtml = doneRows.map(({ s }) => `
-      <div class="item">
-        <div class="item-top">
-          <div><span class="item-title">&#10003; ${esc(s.worker)}</span></div>
-          <span class="item-time">${s.end ? esc(fmtTime(s.end)) : ''}</span>
-        </div>
-        <p class="sub">finished their portion${s.portionChecked ? ', checked by manager' : ', waiting for manager check'}</p>
-        <div class="chips"><span class="chip ${s.portionChecked ? '' : 'med'}">${s.portionChecked ? 'Completed and checked' : 'Finished, awaiting check'}</span></div>
-      </div>`).join('');
-    const rows = openRows.map(({ s, i }) => {
-      const assigned = s.status === 'ASSIGNED';   // manager assigned it, worker hasn't tapped Start yet (see ActivityEngine.gs)
-      const paused = s.status === 'PAUSED';
-      const lastPause = s.pauseTimes[s.pauseTimes.length - 1];
-      const stillPaused = paused && s.pauseTimes.length > s.resumeTimes.length;
-      const lastReason = s.pauseReasons[s.pauseReasons.length - 1];
-      // FIX (bug 6): pause chip only ever said "X ago" (time since the pause started, which
-      // reads as elapsed-so-far, not a clock time) and never said what time the pause began.
-      // Now states reason, the actual clock time it was paused at, and how long it's been
-      // paused for (there's no resume time to report a completed span against while it's
-      // still open - "and counting" makes that explicit rather than implying a fixed duration).
-      const chips = [];
-      if (stillPaused && lastPause) {
-        chips.push(`<span class="chip med">Paused${lastReason ? ': ' + esc(lastReason) : ''}, since ${esc(fmtTime(lastPause))} (${esc(elapsedText(lastPause))} and counting)</span>`);
-      }
-      // FIX (bug 6): chip used to say only "Reassigned from X" - the current assignee (s.worker)
-      // is the row's own title so it read fine in isolation, but didn't state the full handoff
-      // the way the Reassignments history view does ("X to Y"). Spelled out here too.
-      if (s.reassignedFrom) chips.push(`<span class="chip neutral">Reassigned from ${esc(workerName(s.reassignedFrom))} to ${esc(s.worker)}</span>`);
-      // FIX (bug 6): "Created by" / "Assigned by" was never shown at all - Manager_ID was
-      // read off the session (get-manager-board) but nothing in normSession()/renderBoard()
-      // surfaced it. Omitted entirely for a worker-self-started session (no Manager_ID).
-      const createdBy = s.managerId ? `<p class="sub">Assigned by ${esc(workerName(s.managerId))}</p>` : '';
-      return `
-      <div class="item">
-        <div class="item-top">
-          <div><span class="item-title">${esc(s.worker)}</span>${createdBy}</div>
-          <span class="item-time">${assigned ? 'Not started' : (esc(elapsedText(s.start) || '-'))}</span>
-        </div>
-        <p class="sub">${assigned ? 'assigned, waiting' : (s.start ? (stillPaused ? 'started ' : 'since ') + esc(fmtTime(s.start)) : 'start time missing')}</p>
-        ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
-        <div class="vbar" style="margin-top:8px">
-          <button class="btn" data-act="reassign" data-i="${i}" type="button">Reassign</button>
-          <button class="btn" data-act="close-session" data-i="${i}" type="button">${assigned ? 'Clear assignment' : 'Close session'}</button>
-        </div>
-      </div>`;
-    }).join('');
-    return `
-    <div class="group">
-      <div class="group-head">
-        <div><b>${esc(g.activityId ? g.activityId + ': ' + g.task : g.task)}</b>${g.desc ? `<div class="sub">${esc(g.desc)}</div>` : ''}
-          <div class="sub">Bed ${esc(g.bedId || '-')} · Cohort ${esc(g.cohortId || '-')}${g.crop ? ' · ' + esc(g.crop) : ''}</div>
-        </div>
-        <span class="chip ${live ? '' : 'neutral'}">${live ? 'In progress' : 'Assigned'}${doneRows.length ? ' · ' + doneRows.length + ' of ' + (doneRows.length + openRows.length) + ' finished' : ''}</span>
-      </div>
-      <div class="list">${doneHtml}${rows}</div>
+  const btns = (s, i) => {
+    const assigned = s.status === 'ASSIGNED';
+    return `<div class="sc-acts">
+      <button class="sc-btn solid" data-act="reassign" data-i="${i}" type="button">${BIC.shuffle}Reassign</button>
+      <button class="sc-btn outline" data-act="close-session" data-i="${i}" type="button">${BIC.trash}${assigned ? 'Clear assignment' : 'Close session'}</button>
     </div>`;
+  };
+  box.innerHTML = groups.map(grp => {
+    const openRows = grp.rows.filter(r => !r.s.portionDone), doneRows = grp.rows.filter(r => r.s.portionDone);
+    if (!openRows.length) return '';
+    const anyLive = openRows.some(r => r.s.status !== 'ASSIGNED');
+    const anyHeld = openRows.some(r => r.s.status === 'PAUSED' || r.s.status === 'EXCEPTION');
+    const total = doneRows.length + openRows.length, multi = total > 1;
+    const accent = anyHeld ? '#D9480F' : anyLive ? '#F5A623' : '#2F7DD1';
+    const pill = anyHeld ? `<span class="pill hot">${BIC.clock}Paused</span>` : anyLive ? `<span class="pill">${BIC.clock}In Progress</span>` : `<span class="pill blue">${BIC.clock}Assigned</span>`;
+    const head = `<div class="sc-top"><div class="sc-ico">${BIC[activityKind_(grp)]}</div>
+      <div class="sc-title"><b title="${esc(grp.desc || '')}">${esc(grp.activityId ? grp.activityId + ' \u00b7 ' + grp.task : grp.task)}</b>
+        <div class="sc-loc">${BIC.pin}<span><span class="nb">${esc(grp.bedId || '-')}</span>${grp.cohortId ? ' \u00b7 <span class="nb">' + esc(grp.cohortId) + '</span>' : ''}${grp.crop ? ' \u00b7 <span class="nb">' + esc(grp.crop) + '</span>' : ''}</span></div></div>${pill}</div>`;
+    const chipsFor = s => {
+      const stillPaused = s.status === 'PAUSED' && s.pauseTimes.length > s.resumeTimes.length;
+      const lastPause = s.pauseTimes[s.pauseTimes.length - 1], lastReason = s.pauseReasons[s.pauseReasons.length - 1];
+      const c = [];
+      if (stillPaused && lastPause) c.push(`<span class="pill hot sm">Paused${lastReason ? ': ' + esc(lastReason) : ''}, since ${esc(fmtTime(lastPause))} (${esc(elapsedText(lastPause))} and counting)</span>`);
+      if (s.reassignedFrom) c.push(`<span class="pill blue sm">Reassigned from ${esc(workerName(s.reassignedFrom))} to ${esc(s.worker)}</span>`);
+      return c.length ? `<div class="sc-chips">${c.join('')}</div>` : '';
+    };
+    const stateLine = s => s.status === 'ASSIGNED'
+      ? 'Assigned' + (s.managerId ? ' by ' + workerName(s.managerId) : '') + (s.assigned ? ' \u2022 ' + fmtTime(s.assigned) : '')
+      : (s.start ? 'Started ' + fmtTime(s.start) + ' \u2022 ' + (elapsedText(s.start) || '') : 'Start time missing');
+    let body;
+    if (multi) {
+      const pct = Math.round(doneRows.length / total * 100), single = openRows.length === 1;
+      const doneHtml = doneRows.map(({ s }) => `<div class="sc-w"><span class="mark done">${BIC.check}</span>
+        <div class="sc-wb"><b>${esc(titleCase(s.worker))}</b><i>Completed portion${s.portionChecked ? ' \u2022 Manager checked' : ''}${s.end ? ' \u2022 ' + esc(fmtTime(s.end)) : ''}</i></div>
+        ${s.portionChecked ? '' : '<span class="pill sm">Awaiting check</span>'}</div>`).join('');
+      const openHtml = openRows.map(({ s, i }) => {
+        const assigned = s.status === 'ASSIGNED', held = s.status === 'PAUSED' || s.status === 'EXCEPTION';
+        return `<div class="sc-wrap"><div class="sc-w"><span class="mark ${assigned ? 'todo' : 'live'}"></span>
+          <div class="sc-wb"><b>${esc(titleCase(s.worker))}</b><i>${esc(stateLine(s))}</i></div>
+          <span class="pill sm ${assigned ? '' : held ? 'hot' : 'green'}">${assigned ? 'Not started' : held ? 'Paused' : 'In progress'}</span></div>
+          ${chipsFor(s)}${single ? '' : btns(s, i)}</div>`;
+      }).join('');
+      body = `<div class="sc-prog"><span>Worker progress</span><span>${doneRows.length} / ${total}</span></div>
+        <div class="sc-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${doneRows.length}"><i style="width:${pct}%"></i></div>
+        ${doneHtml}${openHtml}${single ? btns(openRows[0].s, openRows[0].i) : ''}`;
+    } else {
+      const { s, i } = openRows[0], assigned = s.status === 'ASSIGNED';
+      body = `<div class="sc-line">${assigned
+        ? 'Assigned to <b>' + esc(titleCase(s.worker)) + '</b>' + (s.assigned ? ' \u2022 ' + esc(fmtTime(s.assigned)) : '') + (s.managerId ? ' \u2022 by ' + esc(workerName(s.managerId)) : '')
+        : '<b>' + esc(titleCase(s.worker)) + '</b> \u2022 ' + esc(stateLine(s))}</div>${chipsFor(s)}${btns(s, i)}`;
+    }
+    return `<div class="scard" data-kind="${activityKind_(grp)}" style="--accent:${accent}">${head}${body}</div>`;
   }).join('');
 }
 
@@ -2372,6 +2545,7 @@ function zsPaintCount() {
     if (show) ban.innerHTML = '<span>⚠ ' + n + ' irrigation zone trace' + (n > 1 ? 's are' : ' is') + ' waiting for your sign-off. Irrigation on ' + (n > 1 ? 'those beds is' : 'that bed is') + ' held until you approve.</span><button class="btn" type="button" data-act="nav" data-view="view-zone">Review now</button>';
   }
   document.title = (signedIn && n ? '(' + n + ') ' : '') + ZS_TITLE0;
+  if (typeof paintOps === 'function' && ui.view === 'view-board' && state.sessions) paintOps();
 }
 async function zsFetch() {
   const res = await apiCall('get-zone-trace-queue', {});
@@ -2523,6 +2697,7 @@ document.addEventListener('click', e => {
     case 'logout': logout(); break;
     case 'refresh': (LOADERS[ui.view] || (() => {}))(); break;
     case 'nav': switchView(t.dataset.view); break;
+    case 'more': setMore_($('#more-panel').hidden); break;
     case 'zs-tab': zsSetTab(t.dataset.tab); break;
     case 'zs-hstatus': ZS.hStatus = t.dataset.s; zsRender(); break;
     case 'zs-approve': zsApprove(t.dataset.id); break;
